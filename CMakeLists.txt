@@ -8,4 +8,5 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 add_executable(MyTinyRenderer
     main.cpp
     tgaimage.cpp
+    linedraw.cpp # 新增
 )
