@@ -49,3 +49,10 @@ private:
     std::vector<std::uint8_t> data = {};
 };
 
+inline constexpr TGAColor white       = {255, 255, 255, 255}; // attention, BGRA order
+inline constexpr TGAColor gray        = {100, 100, 100, 255};
+inline constexpr TGAColor green       = {  0, 255,   0, 255};
+inline constexpr TGAColor red         = {  0,   0, 255, 255};
+inline constexpr TGAColor blue        = {255, 128,  64, 255};
+inline constexpr TGAColor yellow      = {  0, 200, 255, 255};
+inline constexpr TGAColor transparent = {  0,   0,   0,   0};

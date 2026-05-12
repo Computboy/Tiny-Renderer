@@ -1,7 +1,8 @@
 #pragma once
 
-#include <vector>
 #include <string>
+#include <vector>
+
 #include "geometry.h"
 
 struct Fragment {
@@ -12,24 +13,18 @@ struct Fragment {
 };
 
 class Model {
-public:
-    Model(const std::string& filename) {
-        load(filename);
-    }
+   public:
+    Model(const std::string& filename) { load(filename); }
     // 构造函数直接 Model test("diablo3_pose.obj"); 非常方便
 
     bool load(const std::string& filename);
     // 从.obj文件中进行读取
 
-    const std::vector<point3f>& vertices() const {
-        return vertices_;
-    }
+    const std::vector<point3f>& vertices() const { return vertices_; }
 
-    const std::vector<Fragment>& faces() const {
-        return faces_;
-    }
+    const std::vector<Fragment>& faces() const { return faces_; }
 
-private:
+   private:
     std::vector<point3f> vertices_;
     // 储存obj文件顶点的动态数组
     std::vector<Fragment> faces_;
