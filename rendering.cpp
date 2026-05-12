@@ -1,4 +1,4 @@
-#include "linedraw.h"
+#include "rendering.h"
 
 void BresenhamLineDraw(int ax, int ay, int bx, int by, TGAImage &framebuffer, TGAColor color){
     bool steep = std::abs(ax-bx) < std::abs(ay-by);
@@ -36,4 +36,23 @@ void TriangleDraw(point3f A, point3f B, point3f C, TGAImage &framebuffer, TGACol
     BresenhamLineDraw(A.x, A.y, B.x, B.y, framebuffer, color);
     BresenhamLineDraw(A.x, A.y, C.x, C.y, framebuffer, color);
     BresenhamLineDraw(C.x, C.y, B.x, B.y, framebuffer, color);
+}
+
+void DrawWireFrame(const Model& model, TGAImage& image, TGAColor dotcolor, TGAColor linecolor, int width, int height){
+    // 输入obj模型与要绘入的帧缓冲属性
+    // 可指定端点颜色、线段颜色
+    auto vertices = model.vertices();
+    for(auto& ver : vertices){
+        ver.x = (ver.x+1.0) * width / 2.0;
+        ver.y = (ver.y+1.0) * height / 2.0;
+        // 视口变换
+    }
+
+    for(const auto& frag : model.faces()){
+        vec3i face = frag.v_idx;
+        TriangleDraw(vertices[face.x], vertices[face.y], vertices[face.z], image, linecolor);
+        image.set(vertices[face.x].x, vertices[face.x].y, dotcolor);
+        image.set(vertices[face.y].x, vertices[face.y].y, dotcolor);
+        image.set(vertices[face.z].x, vertices[face.z].y, dotcolor);
+    }
 }

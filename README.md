@@ -3,6 +3,11 @@
 
 原仓库：[tinyrenderer](https://github.com/ssloy/tinyrenderer)
 
+重新编译：
+```bash
+cmake --build build && ./build/MyTinyRenderer
+```
+
 # Included
 
 ## set pixel and line drawing
