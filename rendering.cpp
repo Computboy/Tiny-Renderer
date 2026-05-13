@@ -1,4 +1,5 @@
 #include "rendering.h"
+#include <random>
 
 void BresenhamLineDraw(int ax, int ay, int bx, int by, TGAImage& framebuffer, TGAColor color) {
     bool steep = std::abs(ax - bx) < std::abs(ay - by);
@@ -36,7 +37,6 @@ void TriangleDraw(point3f A, point3f B, point3f C, TGAImage& framebuffer, TGACol
     BresenhamLineDraw(A.x, A.y, B.x, B.y, framebuffer, linecolor);
     BresenhamLineDraw(A.x, A.y, C.x, C.y, framebuffer, linecolor);
     BresenhamLineDraw(C.x, C.y, B.x, B.y, framebuffer, linecolor);
-    Rasterization(A, B, C, framebuffer, fillcolor);
 }
 
 void DrawWireFrame(const Model& model, TGAImage& image, int width, int height, TGAColor dotcolor, TGAColor linecolor) {
@@ -48,7 +48,6 @@ void DrawWireFrame(const Model& model, TGAImage& image, int width, int height, T
         ver.y = (ver.y + 1.0) * height / 2.0;
         // 视口变换
     }
-
     for (const auto& frag : model.faces()) {
         vec3i face = frag.v_idx;
         TriangleDraw(vertices[face.x], vertices[face.y], vertices[face.z], image, linecolor, transparent);
@@ -66,18 +65,22 @@ void DrawFillFrame(const Model& model, TGAImage& image, int width, int height, T
         ver.y = (ver.y + 1.0) * height / 2.0;
         // 视口变换
     }
-
     for (const auto& frag : model.faces()) {
-        fillcolor = {0, 0, 0, 0};
+        static std::mt19937 rng(std::random_device{}());
+        static std::uniform_int_distribution<int> dist(40, 200);
+
+        fillcolor = {
+            static_cast<unsigned char>(dist(rng)), // B
+            static_cast<unsigned char>(dist(rng)), // G
+            static_cast<unsigned char>(dist(rng)), // R
+            255                                    // A
+        };
         vec3i face = frag.v_idx;
-        TriangleDraw(vertices[face.x], vertices[face.y], vertices[face.z], image, linecolor, fillcolor);
-        image.set(vertices[face.x].x, vertices[face.x].y, dotcolor);
-        image.set(vertices[face.y].x, vertices[face.y].y, dotcolor);
-        image.set(vertices[face.z].x, vertices[face.z].y, dotcolor);
+        Rasterization(vertices[face.x], vertices[face.y], vertices[face.z], image, fillcolor, width, height);
     }
 }
 
-void Rasterization(point3f A, point3f B, point3f C, TGAImage& framebuffer, TGAColor color) {
+void Rasterization(point3f A, point3f B, point3f C, TGAImage& framebuffer, TGAColor color, int width, int height) {
     // 利用向量叉乘的正负性进行光栅化判断
 
     int ax = A.x, ay = A.y;
@@ -91,13 +94,22 @@ void Rasterization(point3f A, point3f B, point3f C, TGAImage& framebuffer, TGACo
     int y_min = std::min(std::min(ay, by), cy);
     int x_max = std::max(std::max(ax, bx), cx);
     int y_max = std::max(std::max(ay, by), cy);
-    // 标定光栅化的Boundnig-Box
+
+    x_min = std::max(0, x_min);
+    y_min = std::max(0, y_min);
+    x_max = std::min(framebuffer.width() - 1, x_max);
+    y_max = std::min(framebuffer.height() - 1, y_max);
+
+    // 标定光栅化的Boundnig-Box，且防止越界
 
     for (int x = x_min; x <= x_max; x++) {
         for (int y = y_min; y <= y_max; y++) {
             vec2 p(x, y);
-            bool inTriangle = cross(p - c, c - a) > 0 && cross(a - p, b - a) > 0 && cross(p - b, b - c) > 0;
-            if (inTriangle) {
+            float w0 = cross(b - a, p - a);
+            float w1 = cross(c - b, p - b);
+            float w2 = cross(a - c, p - c);
+
+            if ((w0 >= 0 && w1 >= 0 && w2 >= 0) || (w0 <= 0 && w1 <= 0 && w2 <= 0)) {
                 framebuffer.set(x, y, color);
             }
         }

@@ -1,8 +1,8 @@
-#include "tgaimage.h"
 #include "rendering.h"
+#include "tgaimage.h"
 #include "tinyobjloader.h"
 
-int main(int argc, char** argv){
+int main(int argc, char** argv) {
     const int width = 2000;
     const int height = 2000;
 

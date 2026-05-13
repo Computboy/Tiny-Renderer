@@ -14,4 +14,4 @@ void DrawWireFrame(const Model& model, TGAImage& image, int width, int height, T
 void DrawFillFrame(const Model& model, TGAImage& image, int width, int height, TGAColor dotcolor = red,
                    TGAColor linecolor = white, TGAColor fillcolor = transparent);
 
-void Rasterization(point3f A, point3f B, point3f C, TGAImage& framebuffer, TGAColor color);
+void Rasterization(point3f A, point3f B, point3f C, TGAImage& framebuffer, TGAColor color, int width, int height);
