@@ -29,6 +29,9 @@ struct TGAColor {
     const std::uint8_t& operator[](const int i) const { return bgra[i]; }
 };
 
+TGAColor interpolate(float alpha, float beta, float gamma, 
+                     const TGAColor& c1, const TGAColor& c2, const TGAColor& c3);
+
 struct TGAImage {
     enum Format { GRAYSCALE=1, RGB=3, RGBA=4 };
     TGAImage() = default;

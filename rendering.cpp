@@ -90,6 +90,8 @@ void Rasterization(point3f A, point3f B, point3f C, TGAImage& framebuffer, TGACo
     int cx = C.x, cy = C.y;
     vec2 c(cx, cy);
 
+    float total_area = triangle_area(a,b,c);
+
     int x_min = std::min(std::min(ax, bx), cx);
     int y_min = std::min(std::min(ay, by), cy);
     int x_max = std::max(std::max(ax, bx), cx);
@@ -104,14 +106,29 @@ void Rasterization(point3f A, point3f B, point3f C, TGAImage& framebuffer, TGACo
 
     for (int x = x_min; x <= x_max; x++) {
         for (int y = y_min; y <= y_max; y++) {
-            vec2 p(x, y);
+            vec2i p(x, y);
             float w0 = cross(b - a, p - a);
             float w1 = cross(c - b, p - b);
             float w2 = cross(a - c, p - c);
 
             if ((w0 >= 0 && w1 >= 0 && w2 >= 0) || (w0 <= 0 && w1 <= 0 && w2 <= 0)) {
-                framebuffer.set(x, y, color);
+            // 则证明是内部像素
+            float alpha = triangle_area(p,b,c) / total_area;
+            float beta  = triangle_area(p,a,c) / total_area;
+            float gamma = 1.0f - alpha - beta;
+            // 利用面积计算中心坐标
+            TGAColor interpolatecolor = interpolate(alpha, beta, gamma, red, green, blue);
+            framebuffer.set(x, y, interpolatecolor);
             }
         }
     }
+}
+
+float triangle_area(int ax, int ay, int bx, int by, int cx, int cy){
+    return std::abs(0.5f * (ax * (by - cy) + bx * (cy - ay) + cx * (ay - by)));
+    // 鞋带公式(其实就是向量叉乘)计算三角形面积
+}
+
+float triangle_area(vec2i A, vec2i B, vec2i C){
+    return std::abs(0.5f * (A.x * (B.y - C.y) + B.x * (C.y - A.y) + C.x * (A.y - B.y)));
 }

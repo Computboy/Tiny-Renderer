@@ -204,3 +204,12 @@ int TGAImage::height() const {
     return h;
 }
 
+TGAColor interpolate(float alpha, float beta, float gamma,
+                     const TGAColor& c1, const TGAColor& c2, const TGAColor& c3) {
+    TGAColor result;
+    for (int i = 0; i < 4; ++i) {
+        float v = alpha * c1[i] + beta * c2[i] + gamma * c3[i];
+        result[i] = static_cast<std::uint8_t>(v + 0.5f);  // 四舍五入
+    }
+    return result;
+}
