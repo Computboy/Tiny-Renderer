@@ -1,6 +1,9 @@
 #pragma once
 #include <cmath>
 #include <iostream>
+#include <vector>
+
+using z_buffer = std::vector<std::vector<float>>;
 
 // ==================== 三维向量 vec3 ====================
 template <typename T>
