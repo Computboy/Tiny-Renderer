@@ -57,15 +57,9 @@ void DrawWireFrame(const Model& model, TGAImage& image, int width, int height, T
     }
 }
 
-void DrawFillFrame(const Model& model, TGAImage& image, z_buffer& zbuffer, int width, int height, TGAColor dotcolor, TGAColor linecolor,
+void DrawFillFrame(const std::vector<point3f>& vertices, const Model& model, TGAImage& image, z_buffer& zbuffer, int width, int height, TGAColor dotcolor, TGAColor linecolor,
                    TGAColor fillcolor) {
-    auto vertices = model.vertices();
-    for (auto& ver : vertices) {
-        ver.x = (ver.x + 1.0) * width / 2.0;
-        ver.y = (ver.y + 1.0) * height / 2.0;
-        ver.z = (-ver.z + 1.0f) * 0.5f;  // 重点：深度是近小远大 转成[0,1]区间
-        // 视口变换
-    }
+
     for (const auto& frag : model.faces()) {
         static std::mt19937 rng(std::random_device{}());
         static std::uniform_int_distribution<int> dist(0, 255);

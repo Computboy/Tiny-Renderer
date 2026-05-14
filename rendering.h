@@ -11,7 +11,7 @@ void TriangleDraw(point3f A, point3f B, point3f C, TGAImage& framebuffer, TGACol
 
 void DrawWireFrame(const Model& model, TGAImage& image, int width, int height, TGAColor dotcolor = red,
                    TGAColor linecolor = white);
-void DrawFillFrame(const Model& model, TGAImage& image, z_buffer& zbuffer, int width, int height, 
+void DrawFillFrame(const std::vector<point3f>& vertices, const Model& model, TGAImage& image, z_buffer& zbuffer, int width, int height, 
     TGAColor dotcolor = red, TGAColor linecolor = white, TGAColor fillcolor = transparent);
 
 void Rasterization(point3f A, point3f B, point3f C, TGAImage& framebuffer, z_buffer& zbuffer, TGAColor color);
