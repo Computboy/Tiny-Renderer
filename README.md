@@ -88,3 +88,21 @@ for (auto& ver : vertices) {
   <img src="assets/1_5.png" width="520">
 </div>
 
+## Day 6：Shader 抽象与渲染管线重构
+
+Day5 虽然实现了完整的 MVP 变换管线，但 `main.cpp` 中混杂了大量顶点变换逻辑，渲染函数 `DrawFillFrame` 和 `Rasterization` 的职责边界模糊。Day6 的目标不是增加新渲染特性，而是**重构工程结构**，使渲染器架构更接近真实 GPU 的「Draw Call → Vertex Shader → Rasterization → Fragment Shader」模型。
+
+**新增 `IShader` 抽象接口**（`shader.h`）：
+- `vertex(faceIndex, vertexIndex)` — 顶点着色阶段，输出裁剪空间坐标
+- `fragment(bary)` — 片段着色阶段，返回 `pair<discard, color>`，支持像素丢弃
+
+**`FlatShader` 具体实现**：将 Day3–Day5 的随机颜色填充逻辑封装进 Shader——`vertex()` 执行 MVP 变换并按面分配随机颜色，`fragment()` 直接返回该颜色。
+
+**核心重构**：
+- `DrawFillFrame` → `Draw`：内部调用 `shader.vertex()` 获取裁剪坐标，统一执行透视除法 + 视口变换，承担 Draw Call 的角色
+- `Rasterization` 不再接受固定颜色，改由 `shader.fragment(bary)` 按像素获取颜色
+- `main.cpp` 删除手动顶点变换循环，改为「创建 Shader → 调用 Draw」的简洁模式
+- `Model::vert(faceIndex, vertexIndex)` 新增便捷方法，封装面索引到顶点坐标的查询
+
+**架构收益**：后续要添加纹理映射、Gouraud/Phong 光照等新着色效果，只需编写新的 `IShader` 子类，无需再触碰 `Draw()` 或 `Rasterization()` 的核心逻辑。
+
