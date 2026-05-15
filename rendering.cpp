@@ -57,26 +57,27 @@ void DrawWireFrame(const Model& model, TGAImage& image, int width, int height, T
     }
 }
 
-void DrawFillFrame(const std::vector<point3f>& vertices, const Model& model, TGAImage& image, z_buffer& zbuffer, int width, int height, TGAColor dotcolor, TGAColor linecolor,
-                   TGAColor fillcolor) {
-
-    for (const auto& frag : model.faces()) {
-        static std::mt19937 rng(std::random_device{}());
-        static std::uniform_int_distribution<int> dist(0, 255);
-
-        fillcolor = {
-            static_cast<unsigned char>(dist(rng)), // B
-            static_cast<unsigned char>(dist(rng)), // G
-            static_cast<unsigned char>(dist(rng)), // R
-            255                                    // A
-        };
-        vec3i face = frag.v_idx;
-        Rasterization(vertices[face.x], vertices[face.y], vertices[face.z], image, zbuffer, fillcolor);
+void Draw(const Model& model, IShader& shader, TGAImage& image, z_buffer& zbuffer, int width, int height) {
+    vec4f clipVertices[3];
+    vec3f screenVertices[3];
+    int faceNumber = model.faces().size();
+    for(int faceIndex = 0; faceIndex < faceNumber; faceIndex++) {
+        for(int vertexIndex = 0; vertexIndex <= 2; vertexIndex++) {
+            clipVertices[vertexIndex] = shader.vertex(faceIndex, vertexIndex);
+            // 每个面一个循环：这里获得的是顶点着色器输出的裁剪空间中的三个点坐标
+        }
+        mat4f viewport = Viewport(width, height);
+        for(int scrver = 0; scrver <=2; scrver++){
+            screenVertices[scrver] = clipVertices[scrver].to_vec3();
+            // 将vec4转换成vec3(齐次坐标变换)，这一步同时做了w坐标除法
+            screenVertices[scrver] = TransformPoint(viewport, screenVertices[scrver]);
+            // ndc → screen 这一步将MVP变换后的顶点坐标转换成屏幕坐标空间，只需要width/height两个参数
+        }
+        Rasterization(screenVertices[0], screenVertices[1], screenVertices[2], shader, image, zbuffer);
     }
 }
 
-void Rasterization(point3f A, point3f B, point3f C, TGAImage& framebuffer, z_buffer& zbuffer,
-                   TGAColor color) {
+void Rasterization(point3f A, point3f B, point3f C, IShader& shader, TGAImage& framebuffer, z_buffer& zbuffer) {
 
     // 利用向量叉乘的正负性进行光栅化判断
     float ax = A.x, ay = A.y, az = A.z;
@@ -115,12 +116,17 @@ void Rasterization(point3f A, point3f B, point3f C, TGAImage& framebuffer, z_buf
                 // 利用面积计算中心坐标
                 // TGAColor interpolatecolor = interpolate(alpha, beta, gamma, red, green, blue);
                 // framebuffer.set(x, y, interpolatecolor); 插值的颜色
-                float depth = alpha * az + beta * bz + gamma * cz;
+                vec3f bary = {alpha, beta, gamma};
+                float depth = bary.x * az + bary.y * bz + bary.z * cz;
                 if(depth < zbuffer[x][y]){
                     // 当前插值出来的深度小于深度缓冲区中的（说明是最前）
-                    framebuffer.set(x, y, color);
-                    zbuffer[x][y] = depth;
-                    // 绘制并更新
+                    auto [discard, fragColor] = shader.fragment(bary);
+                    if (!discard) {
+                        framebuffer.set(x, y, fragColor);
+                        zbuffer[x][y] = depth;
+                        // 绘制并更新
+                    }
+
                 }
             }
         }

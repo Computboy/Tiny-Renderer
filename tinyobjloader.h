@@ -24,6 +24,8 @@ class Model {
 
     const std::vector<Fragment>& faces() const { return faces_; }
 
+    const point3f vert(int faceIndex, int vertexIndex) const;
+
    private:
     std::vector<point3f> vertices_;
     // 储存obj文件顶点的动态数组

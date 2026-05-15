@@ -81,3 +81,10 @@ bool Model::load(const std::string& filename) {
 
     return true;
 }
+
+const point3f Model::vert(int faceIndex, int vertexIndex) const{
+    const Fragment& frag = faces_[faceIndex];
+    int vertexID = frag.v_idx[vertexIndex];
+    return vertices_[vertexID];
+}
+// 获取第faceIndex个面的第vertexIndex个顶点
