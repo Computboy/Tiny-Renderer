@@ -34,6 +34,10 @@ struct vec3 {
 
     vec3<T> operator/(T value) const { return vec3<T>(x / value, y / value, z / value); }
 
+    vec3<T> cwiseproduct(const vec3<T>& other) const {
+        return vec3<T>(x * other.x, y * other.y, z * other.z);
+    }
+
     T norm() const {
         // 向量范数(模长)
         return std::sqrt(x * x + y * y + z * z);
@@ -41,7 +45,7 @@ struct vec3 {
 
     vec3<T> normalize() const {
         T n = norm();
-        if (n == 0) return vec3<T>(0, 0, 0);
+        if (std::abs(n) < 1e-6) return vec3<T>(0, 0, 0);
         return vec3<T>(x / n, y / n, z / n);
     }
 };
@@ -200,6 +204,7 @@ std::ostream& operator<<(std::ostream& out, const vec2<T>& v) {
 using vec3f = vec3<float>;
 using point3f = vec3<float>;
 using color3f = vec3<float>;
+using normal3f = vec3<float>;
 
 using vec3i = vec3<int>;
 using vec3d = vec3<double>;

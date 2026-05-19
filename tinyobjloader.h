@@ -25,10 +25,13 @@ class Model {
     const std::vector<Fragment>& faces() const { return faces_; }
 
     const point3f vert(int faceIndex, int vertexIndex) const;
+    const normal3f normal(int faceIndex, int normalIndex) const;
 
    private:
     std::vector<point3f> vertices_;
     // 储存obj文件顶点的动态数组
+    std::vector<normal3f> normals_;
+    // 储存obj文件顶点法线向量的动态数组
     std::vector<Fragment> faces_;
     // 储存obj文件每个面的动态数组
 };

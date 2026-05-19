@@ -28,8 +28,12 @@ bool Model::load(const std::string& filename) {
         if (prefix == "v") {
             float x, y, z;
             iss >> x >> y >> z;
-
             vertices_.push_back(point3f(x, y, z));
+        } else if (prefix == "vn"){
+            float x, y, z;
+            iss >> x >> y >> z;
+            normals_.push_back(normal3f(x, y, z).normalize());
+            // 阅读法线
         } else if (prefix == "f") {
             Fragment face;
 
@@ -87,4 +91,11 @@ const point3f Model::vert(int faceIndex, int vertexIndex) const{
     int vertexID = frag.v_idx[vertexIndex];
     return vertices_[vertexID];
 }
-// 获取第faceIndex个面的第vertexIndex个顶点
+// 获取第faceIndex个面的第vertexIndex个顶点位置坐标
+
+const normal3f Model::normal(int faceIndex, int normalIndex) const{
+    const Fragment& frag = faces_[faceIndex];
+    int normalID = frag.vn_idx[normalIndex];
+    return normals_[normalID];
+}
+// 获取第faceIndex个面的第vertexIndex个法线位置坐标
