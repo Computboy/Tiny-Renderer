@@ -21,7 +21,7 @@ int main(int argc, char** argv) {
     mat4f viewportMatrix = Viewport(width, height);
     // 矩阵变换
 
-    Model Diablo3("HotDog_Car.obj");
+    Model Diablo3("media/HotDog_Car.obj");
     // FlatShader myShader(Diablo3, modelMatrix, viewMatrix, perspectiveMatrix);
     Blinn_PhongShader myShader(Diablo3, modelMatrix, viewMatrix, perspectiveMatrix, vec3f(1.0f, 1.0f, 1.0f), vec3f(2.0f, -4.0f, 6.0f), CamPos);
 
@@ -30,7 +30,7 @@ int main(int argc, char** argv) {
     // Model-1
 
     // TGAImage image2_test(width, height, TGAImage::RGB);
-    // Model test2("HotDog_Car.obj");
+    // Model test2("media/HotDog_Car.obj");
     // DrawWireFrame(test2, image2_test width, height, white, yellow,);
     // image2_test.write_tga_file("framebuffer2.tga");
     // // Model-2
