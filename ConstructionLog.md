@@ -1008,7 +1008,7 @@ mat4f Translate(float tx, float ty, float tz) {
 }
 ```
 
-> 矩阵的 `mat4f{m00, m01, m02, m03, m10, ...}` 构造语法按**行优先**书写，但内存布局与数学上的 $M_{ij}$ 一致。**矩阵乘向量时使用列向量**：`M * v` 表示 $M \cdot \vec{v}$。
+> 矩阵的 `mat4f{m00, m01, m02, m03, m10, ...}` 构造语法按 **行优先** 书写，但内存布局与数学上的 $M_{ij}$ 一致。**矩阵乘向量时使用列向量**：`M * v` 表示 $M \cdot \vec{v}$。
 
 #### 3.2 缩放矩阵
 
@@ -1076,7 +1076,7 @@ R_y(\theta) = \begin{bmatrix}
 \end{bmatrix}
 $$
 
-> 绕 Y 轴旋转时 $\sin\theta$ 项的符号与其他两轴**相反**：因为 $\hat{k} \times \hat{i} = \hat{j}$（右手系），绕 Y 轴时 XZ 平面的旋转方向与直觉相反。
+> 绕 Y 轴旋转时 $\sin\theta$ 项的符号与其他两轴 **相反**：因为 $\hat{k} \times \hat{i} = \hat{j}$（右手系），绕 Y 轴时 XZ 平面的旋转方向与直觉相反。
 
 代码实现（`transformation.cpp:37-74`）直接按上述矩阵填写：
 
@@ -1098,7 +1098,7 @@ mat4f RotateZ(float deg) {
 
 ### 4. View 变换：LookAt 矩阵
 
-View 变换将整个场景从世界坐标系变换到**摄像机坐标系**——以摄像机位置为原点，摄像机朝向为 $-Z$ 轴。
+View 变换将整个场景从世界坐标系变换到 **摄像机坐标系**——以摄像机位置为原点，摄像机朝向为 $-Z$ 轴。
 
 View 矩阵 = 旋转 × 平移，即：
 
@@ -1124,16 +1124,16 @@ $$
 \end{aligned}
 $$
 
-这三个向量构成摄像机坐标系的**标准正交基**。现在需要找到一个矩阵，将世界坐标中的向量转换为摄像机坐标中的表达。
+这三个向量构成摄像机坐标系的 **标准正交基**。现在需要找到一个矩阵，将世界坐标中的向量转换为摄像机坐标中的表达。
 
-**关键推导**：对于世界空间中的任意向量 $\vec{v}$，它在摄像机坐标系中的坐标就是 $\vec{v}$ 在各个摄像机基向量上的**投影长度**：
+**关键推导**：对于世界空间中的任意向量 $\vec{v}$，它在摄像机坐标系中的坐标就是 $\vec{v}$ 在各个摄像机基向量上的 **投影长度**：
 $$
 v_{\text{cam}} = \begin{bmatrix} \vec{r} \cdot \vec{v} \\ \vec{u}' \cdot \vec{v} \\ -\vec{g} \cdot \vec{v} \end{bmatrix}
 $$
 
 > 第三分量取 $-\vec{g}$ 而不是 $\vec{g}$，因为 OpenGL 约定摄像机看向 $-Z$ 方向。
 
-将点积写成矩阵乘法的形式，即得旋转矩阵（基向量放在**行**上）：
+将点积写成矩阵乘法的形式，即得旋转矩阵（基向量放在 **行** 上）：
 
 $$
 R_{\text{view}} = \begin{bmatrix}
@@ -1144,7 +1144,7 @@ R_{\text{view}} = \begin{bmatrix}
 \end{bmatrix}
 $$
 
-> 为什么基向量放在行上？因为 $(\text{row}_i) \cdot \vec{v}$ 正是基向量与 $\vec{v}$ 的点积——即坐标投影。这等价于将标准正交的基变换矩阵**转置**。
+> 为什么基向量放在行上？因为 $(\text{row}_i) \cdot \vec{v}$ 正是基向量与 $\vec{v}$ 的点积——即坐标投影。这等价于将标准正交的基变换矩阵 **转置**。
 
 **最终 LookAt 矩阵**：
 
@@ -1194,7 +1194,7 @@ float f = -farDistance;
 也就是说，`nearDistance` 和 `farDistance` 是正数距离，但观察空间中的近平面与远平面坐标分别是：
 
 $$
-z=n=-\text{nearDistance}, \qquad z=f=-\text{farDistance}
+z = n =-\text{nearDistance}, \qquad z = f =-\text{farDistance}
 $$
 
 并且：$0 > n > f$，因为摄像机看向 $-Z$ 方向，所以可见点的 $z$ 坐标为负。
@@ -1218,9 +1218,9 @@ $$
 希望矩阵先得到：
 
 $$
-(x,y,z,1)^\top
+(x, y, z,1)^\top
 \longrightarrow
-(nx,ny,?,z)^\top
+(nx, ny,?, z)^\top
 $$
 
 透视除法后：
@@ -1240,33 +1240,33 @@ $$
 由于这一阶段只是把视锥体挤压成长方体，希望近平面和远平面在透视除法后的 $z$ 坐标保持不变：
 
 $$
-z=n \Rightarrow \frac{An+B}{n}=n\\
-z=f \Rightarrow \frac{Af+B}{f}=f
+z = n \Rightarrow \frac{An+B}{n}= n\\
+z = f \Rightarrow \frac{Af+B}{f}= f
 $$
 
 于是：
 
 $$
-An+B=n^2\\
-Af+B=f^2
+An+B = n^2\\
+Af+B = f^2
 $$
 
 两式相减：
 
 $$
-A(n-f)=n^2-f^2=(n-f)(n+f)
+A(n-f)= n^2-f^2 =(n-f)(n+f)
 $$
 
 所以：
 
 $$
-A=n+f
+A = n+f
 $$
 
 代回可得：
 
 $$
-B=-nf
+B =-nf
 $$
 
 因此：
@@ -1307,8 +1307,8 @@ mat4f PerspectiveToOrthographic(float n, float f) {
 视锥体被挤压成长方体 $[-r, r] \times [-t, t] \times [f, n]$ 后，需要将其映射到 NDC 立方体 $[-1, 1]^3$。本项目采用的深度约定是：
 
 $$
-z=n \Rightarrow z_{\text{ndc}}=1\\
-z=f \Rightarrow z_{\text{ndc}}=-1
+z = n \Rightarrow z_{\text{ndc}}= 1\\
+z = f \Rightarrow z_{\text{ndc}}=-1
 $$
 
 也就是近平面映射到 $+1$，远平面映射到 $-1$。这与后续 Viewport 中 $z_{\text{depth}}=-0.5z_{\text{ndc}}+0.5$ 配合，可以得到「近处深度小、远处深度大」的 Z-Buffer 约定。
@@ -1362,7 +1362,7 @@ mat4f Orthographic(float fovY_degree, float aspect,
 
 #### 5.3 为什么除以 $w$ 后一定在 $[-1, 1]$ 范围内
 
-这是透视投影矩阵**设计的结果**，而非巧合。以 $x$ 坐标为例：
+这是透视投影矩阵 **设计的结果**，而非巧合。以 $x$ 坐标为例：
 
 经过 $M_{\text{Persp} \to \text{Ortho}}$ 后：$x' = n x$，$w' = z$。由于本项目中 $n$ 与 $z$ 都是负数，透视除法后比例仍然为正：
 
@@ -1370,11 +1370,11 @@ $$
 x''=\frac{nx}{z}
 $$
 
-- 对 **右平面**上的点：在观察空间中，$x / z = r / n$（相似三角形，二者分母都为负），所以 $x'' = n \cdot (r / n) = r$。
+- 对 **右平面** 上的点：在观察空间中，$x / z = r / n$（相似三角形，二者分母都为负），所以 $x'' = n \cdot (r / n) = r$。
 - 再经正交投影 $\frac{1}{r} \cdot r = 1$，恰好到达 NDC 右边界 $\mathbf{+1}$。
 - 对 **左平面**，同理到达 $-1$。
 
-$y$ 分量和 $z$ 分量同理——矩阵的系数是**故意选取**的，确保视锥体的六个面恰好映射到 NDC 立方体的六个面 $[\pm 1, \pm 1, \pm 1]$。
+$y$ 分量和 $z$ 分量同理——矩阵的系数是 **故意选取** 的，确保视锥体的六个面恰好映射到 NDC 立方体的六个面 $[\pm 1, \pm 1, \pm 1]$。
 
 需要特别注意：本项目这版推导使用的是 $w=z$ 的负深度约定，因此更适合在软件光栅器中先手动执行透视除法，再检查 NDC 是否位于 $[-1,1]^3$。如果采用标准 OpenGL 的 GPU 裁剪流程，通常会使用 $w=-z$，此时才可以直接套用 $-w \leq x,y,z \leq w$ 的裁剪空间判定。
 
@@ -1493,7 +1493,7 @@ Day5 结束时，整个渲染管线已经能够正确运转——MVP 变换 + �
 - `DrawFillFrame` 接收一个「已变换到屏幕空间」的顶点数组，但又需要 `Model` 来获取面索引——它既管顶点又管面，职责暧昧；
 - `Rasterization` 只接受一个固定颜色，无法为不同像素产生不同着色——这意味着后续引入纹理、光照时必须改动渲染核心。
 
-Day6 的目标不是增加新渲染特性，而是**重构渲染管线的工程结构**，使其更接近真实 GPU 的「Draw Call → Vertex Shader → Rasterization → Fragment Shader」架构。
+Day6 的目标不是增加新渲染特性，而是 **重构渲染管线的工程结构**，使其更接近真实 GPU 的「Draw Call → Vertex Shader → Rasterization → Fragment Shader」架构。
 
 ---
 
@@ -1552,7 +1552,7 @@ vec4f vertex(int faceIndex, int vertexIndex) override {
 关键点：
 - 通过 `mesh.vert(faceIndex, vertexIndex)` 直接从 Model 获取顶点坐标；
 - 当 `vertexIndex == 0`（即每个面的第一个顶点）时生成新随机颜色，确保同一三角形的三个顶点共享同一种颜色；
-- 返回的是**裁剪空间坐标**（尚未进行透视除法和视口变换）。
+- 返回的是 **裁剪空间坐标**（尚未进行透视除法和视口变换）。
 
 **`fragment()` 的实现**：
 
@@ -1595,7 +1595,7 @@ Day5 时，`DrawFillFrame` 接收已变换到屏幕空间的顶点数组，这�
 - `main.cpp` 负责 MVP 变换 → 破坏了封装；
 - Viewport 变换也在 `main.cpp` 中 → `DrawFillFrame` 无法独立完成渲染。
 
-Day6 将 `DrawFillFrame` 重命名为 `Draw`，并将**透视除法 + 视口变换**移入其内部：
+Day6 将 `DrawFillFrame` 重命名为 `Draw`，并将 **透视除法 + 视口变换** 移入其内部：
 
 ```cpp
 void Draw(const Model& model, IShader& shader, TGAImage& image,
@@ -1645,7 +1645,7 @@ void Rasterization(point3f A, point3f B, point3f C, IShader& shader,
                    TGAImage& fb, z_buffer& zb);
 ```
 
-核心变化：深度测试通过后，不再写入固定颜色，而是**调用 `shader.fragment(bary)`** 获取像素颜色：
+核心变化：深度测试通过后，不再写入固定颜色，而是 **调用 `shader.fragment(bary)`** 获取像素颜色：
 
 ```cpp
 vec3f bary = {alpha, beta, gamma};
@@ -1781,7 +1781,7 @@ $$
 I_{\text{specular}}^{\text{Phong}} = k_s \cdot \text{lightColor} \cdot \max(0, \vec{R} \cdot \vec{V})^{n_s}
 $$
 
-但计算反射向量 $\vec{R} = 2(\vec{N} \cdot \vec{L})\vec{N} - \vec{L}$ 有一定开销。**Blinn 的改进**是引入半程向量（Halfway Vector）：
+但计算反射向量 $\vec{R} = 2(\vec{N} \cdot \vec{L})\vec{N} - \vec{L}$ 有一定开销。**Blinn 的改进** 是引入半程向量（Halfway Vector）：
 
 $$
 \vec{H} = \frac{\vec{L} + \vec{V}}{\|\vec{L} + \vec{V}\|}
@@ -1874,7 +1874,7 @@ Blinn_PhongShader(
 );
 ```
 
-光照计算在**世界空间**中进行——这样光源位置和相机位置都可以直接在世界空间中指定，不必跟随顶点一起变换。
+光照计算在 **世界空间** 中进行——这样光源位置和相机位置都可以直接在世界空间中指定，不必跟随顶点一起变换。
 
 #### 4.2 `vertex()` — 顶点着色阶段
 
@@ -2017,7 +2017,7 @@ Day7 完成后，渲染器首次输出了带有光照和明暗效果的图像。
 
 ## Day 8 - 纹理映射与着色器封装
 
-Day7 实现了 Blinn-Phong 光照，但模型的基底颜色（baseColor）是固定的纯白色——画面有了立体感，却缺少材质细节。Day8 的目标是引入**纹理映射（Texture Mapping）**，使物体表面能够从纹理贴图中采样得到丰富的颜色信息，同时对手动着色器中的光照计算进行函数封装，提升代码的可读性与复用性。
+Day7 实现了 Blinn-Phong 光照，但模型的基底颜色（baseColor）是固定的纯白色——画面有了立体感，却缺少材质细节。Day8 的目标是引入 **纹理映射（Texture Mapping）**，使物体表面能够从纹理贴图中采样得到丰富的颜色信息，同时对手动着色器中的光照计算进行函数封装，提升代码的可读性与复用性。
 
 ---
 
@@ -2027,7 +2027,7 @@ Day7 实现了 Blinn-Phong 光照，但模型的基底颜色（baseColor）是�
 
 > 给定屏幕上一个像素，它对应纹理图像中的哪个颜色？
 
-OBJ 文件中的 `vt` 行记录了每个顶点的**纹理坐标（UV）**——即该顶点在二维纹理图像中的位置。需要注意的是，`vt` 本身不存储颜色，它只是给出了「在哪里取色」的坐标。真正的颜色获取发生在 fragment 阶段：
+OBJ 文件中的 `vt` 行记录了每个顶点的 **纹理坐标（UV）**——即该顶点在二维纹理图像中的位置。需要注意的是，`vt` 本身不存储颜色，它只是给出了「在哪里取色」的坐标。真正的颜色获取发生在 fragment 阶段：
 
 1. 顶点着色器从 OBJ 中读取每个顶点的 UV 坐标，传入 varying 变量；
 2. 光栅化阶段，三个顶点的 UV 坐标通过重心坐标插值，得到当前片段的 UV；
@@ -2048,7 +2048,7 @@ vt 0.375 0.250 0.123
 
 > 其中，`vt` 行通常给出二维纹理坐标 `u, v`。部分 OBJ 文件也可能在末尾附带第三个可选分量 `w`，但当前渲染器只处理普通二维纹理图像，因此暂时只读取前两个数即可。
 
-在 Day2 的面解析中，`f` 行的第二个字段就是纹理坐标索引（`vt_idx`），`parseFaceVertex` 早已完成了三类索引的分离。因此 Day8 只需要做两件事：**存储 `vt` 数据**和**提供访问接口**。
+在 Day2 的面解析中，`f` 行的第二个字段就是纹理坐标索引（`vt_idx`），`parseFaceVertex` 早已完成了三类索引的分离。因此 Day8 只需要做两件事：**存储 `vt` 数据** 和 **提供访问接口**。
 
 解析代码（`tinyobjloader.cpp`）：
 
@@ -2084,7 +2084,7 @@ const uv2f Model::uv(int faceIndex, int uvIndex) const {
 }
 ```
 
-至此，OBJ 文件的三类顶点属性——位置（`v`）、纹理坐标（`vt`）、法线（`vn`）——全部完成解析，且拥有对称的访问接口：`vert()`、`uv()`、`normal()`。这是 OBJ 文件的一个关键特点：顶点位置、纹理坐标和法线拥有**三套独立索引**，同一个三角形顶点可以分别索引不同的位置、UV 和法线。
+至此，OBJ 文件的三类顶点属性——位置（`v`）、纹理坐标（`vt`）、法线（`vn`）——全部完成解析，且拥有对称的访问接口：`vert()`、`uv()`、`normal()`。这是 OBJ 文件的一个关键特点：顶点位置、纹理坐标和法线拥有 **三套独立索引**，同一个三角形顶点可以分别索引不同的位置、UV 和法线。
 
 ---
 
@@ -2275,7 +2275,7 @@ OBJ 文件开头可能通过 `mtllib backpack.mtl` 指定材质库：
 mtllib backpack.mtl
 ```
 
-`.mtl` 文件内部进一步记录漫反射颜色、镜面反射参数以及 diffuse / specular / normal 等纹理贴图路径。真实渲染管线中的模型加载远不止读取几何数据，更接近一个**资源管理系统**——模型、材质、纹理和路径解析需要被统一组织。
+`.mtl` 文件内部进一步记录漫反射颜色、镜面反射参数以及 diffuse / specular / normal 等纹理贴图路径。真实渲染管线中的模型加载远不止读取几何数据，更接近一个 **资源管理系统**——模型、材质、纹理和路径解析需要被统一组织。
 
 当前阶段为了快速打通纹理映射管线，选择手动指定 diffuse texture 文件，暂不完整解析 `.mtl`。待后续引入多纹理（specular map、normal map 等）时，再实现完整的材质加载系统。
 
