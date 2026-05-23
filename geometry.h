@@ -211,6 +211,7 @@ using vec3d = vec3<double>;
 
 using vec2f = vec2<float>;
 using point2f = vec2<float>;
+using uv2f = vec2<float>;
 
 using vec2i = vec2<int>;
 using vec2d = vec2<double>;

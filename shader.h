@@ -92,13 +92,67 @@ private:
     vec3f varying_worldPos[3];
     vec3f varying_normal[3];
 
+    uv2f varying_uv[3];
+    TGAImage diffusemap;
+
     color3f lightColor;
     vec3f lightPosition;
     // 光照属性
     vec3f cameraPos;
 
-public:
+    color3f sampleDiffuse(const uv2f& uv) const {
+        int tx = uv.x * diffusemap.width();
+        int ty = uv.y * diffusemap.height();
 
+        TGAColor color_in_tex = diffusemap.get(tx, ty);
+
+        color3f baseColor(color_in_tex[2] / 255.0f, color_in_tex[1] / 255.0f, color_in_tex[0] / 255.0f);
+
+        return baseColor;
+    }
+
+    color3f blinnPhong(
+        const color3f& baseColor,
+        const vec3f& frag_WorldPos,
+        const normal3f& frag_Normal
+    ) const {
+        vec3f lightDir = (lightPosition - frag_WorldPos).normalize();
+        vec3f viewDir  = (cameraPos - frag_WorldPos).normalize();
+
+        vec3f halfwayDir = (lightDir + viewDir).normalize();
+
+        float ambientStrength = 0.10f;
+        vec3f ambient = baseColor * ambientStrength;
+
+        float diff = std::max(0.0f, dot(frag_Normal, lightDir));
+        vec3f diffuse = baseColor.cwiseproduct(lightColor) * diff;
+
+        float specularStrength = 0.45f;
+        float shininess = 32.0f;
+
+        float spec = std::pow(std::max(0.0f, dot(frag_Normal, halfwayDir)), shininess);
+
+        vec3f specular = lightColor * specularStrength * spec;
+        vec3f result = ambient + diffuse + specular;
+
+        result.x = std::clamp(result.x, 0.0f, 1.0f);
+        result.y = std::clamp(result.y, 0.0f, 1.0f);
+        result.z = std::clamp(result.z, 0.0f, 1.0f);
+
+        return result;
+    }
+
+    TGAColor toTGAColor(const color3f& result) const {
+        TGAColor color{
+            static_cast<unsigned char>(result.z * 255.0f),
+            static_cast<unsigned char>(result.y * 255.0f),
+            static_cast<unsigned char>(result.x * 255.0f),
+            255
+        };
+        return color;
+    }
+
+public:
     Blinn_PhongShader(
         const Model& mesh_,
         const mat4f& modelMatrix_,
@@ -106,7 +160,8 @@ public:
         const mat4f& projectionMatrix_,
         const color3f& lightColor_,
         const vec3f& lightPosition_,
-        const vec3f& cameraPos_
+        const vec3f& cameraPos_,
+        const TGAImage& diffusemap_
     )
         : mesh(mesh_),
           modelMatrix(modelMatrix_),
@@ -115,66 +170,51 @@ public:
           color{255, 255, 255, 255},
           lightColor(lightColor_),
           lightPosition(lightPosition_),
-          cameraPos(cameraPos_)
+          cameraPos(cameraPos_),
+          diffusemap(diffusemap_)
     {}
 
     vec4f vertex(int faceIndex, int vertexIndex) override {
-        vec3f v = mesh.vert(faceIndex, vertexIndex);
-        vec3f n = mesh.normal(faceIndex, vertexIndex);
+        vec3f v  = mesh.vert(faceIndex, vertexIndex);
+        vec3f n  = mesh.normal(faceIndex, vertexIndex);
+        vec2f uv = mesh.uv(faceIndex, vertexIndex);
         vec4f worldPos = modelMatrix * vec4f(v.x, v.y, v.z, 1.0f);
 
         gl_Position[vertexIndex] = projectionMatrix * viewMatrix * worldPos;
         varying_worldPos[vertexIndex] = vec3f(worldPos.x, worldPos.y, worldPos.z);
         varying_normal[vertexIndex] = n.normalize();
         // 暂时不考虑非均匀缩放
+        varying_uv[vertexIndex] = uv;
 
         return gl_Position[vertexIndex];
     }
 
     std::pair<bool, TGAColor> fragment(const vec3f& bar) const override {
-        vec3f frag_WorldPos = varying_worldPos[0] * bar.x + varying_worldPos[1] * bar.y + varying_worldPos[2] * bar.z;
-        // 插值计算世界坐标
-        normal3f frag_Normal = (varying_normal[0] * bar.x + varying_normal[1] * bar.y + varying_normal[2] * bar.z).normalize();
-        // 插值计算法线坐标
+        vec3f frag_WorldPos =
+            varying_worldPos[0] * bar.x +
+            varying_worldPos[1] * bar.y +
+            varying_worldPos[2] * bar.z;
 
-        vec3f lightDir = (lightPosition - frag_WorldPos).normalize();
-        vec3f viewDir  = (cameraPos - frag_WorldPos).normalize();
-        // 计算光照方向与观测方向
+        normal3f frag_Normal =(
+                varying_normal[0] * bar.x +
+                varying_normal[1] * bar.y +
+                varying_normal[2] * bar.z
+            ).normalize();
 
-        vec3f halfwayDir = (lightDir + viewDir).normalize();
-        // Blinn-Phong光照的半程向量
+        uv2f bary_uv_coordinate =
+            varying_uv[0] * bar.x +
+            varying_uv[1] * bar.y +
+            varying_uv[2] * bar.z;
 
-        vec3f baseColor(1.0f, 1.0f, 1.0f);
+        color3f baseColor = sampleDiffuse(bary_uv_coordinate);
+        // 从纹理图像中获取纹理颜色
 
-        float ambientStrength = 0.10f;
-        vec3f ambient = baseColor * ambientStrength;
-        // 环境光计算
+        color3f result = blinnPhong(baseColor, frag_WorldPos, frag_Normal);
+        // 调用封装函数计算Blinn-Phong光照
 
-        float diff = std::max(0.0f, dot(frag_Normal, lightDir));
-        vec3f diffuse = baseColor.cwiseproduct(lightColor) * diff;
-        // 漫反射光计算
+        TGAColor color = toTGAColor(result);
+        // 将vec3f转换成TGAColor类型，以在tga图像中显示
 
-        float specularStrength = 0.45f;
-        float shininess = 32.0f;
-
-        float spec = std::pow(std::max(0.0f, dot(frag_Normal, halfwayDir)), shininess);
-        // 镜面反射光计算
-
-        vec3f specular = lightColor * specularStrength * spec;
-
-        vec3f result = ambient + diffuse + specular;
-        result.x = std::clamp(result.x, 0.0f, 1.0f);
-        result.y = std::clamp(result.y, 0.0f, 1.0f);
-        result.z = std::clamp(result.z, 0.0f, 1.0f);
-        // 三部分加和计算
-
-        TGAColor color{
-            static_cast<unsigned char>(result.z * 255.0f),
-            static_cast<unsigned char>(result.y * 255.0f),
-            static_cast<unsigned char>(result.x * 255.0f),
-            255
-        };
-        // 遵循BGRA通道
         return {false, color};
     }
     void setColor(const TGAColor& _color){

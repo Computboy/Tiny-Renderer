@@ -34,6 +34,11 @@ bool Model::load(const std::string& filename) {
             iss >> x >> y >> z;
             normals_.push_back(normal3f(x, y, z).normalize());
             // 阅读法线
+        } else if (prefix == "vt"){
+            float x, y;
+            iss >> x >> y;
+            uvs_.push_back(uv2f(x, y));
+            // 阅读纹理坐标
         } else if (prefix == "f") {
             Fragment face;
 
@@ -98,4 +103,11 @@ const normal3f Model::normal(int faceIndex, int normalIndex) const{
     int normalID = frag.vn_idx[normalIndex];
     return normals_[normalID];
 }
-// 获取第faceIndex个面的第vertexIndex个法线位置坐标
+// 获取第faceIndex个面的第normalIndex个法线位置坐标
+
+const uv2f Model::uv(int faceIndex, int uvIndex) const{
+    const Fragment& frag = faces_[faceIndex];
+    int normalID = frag.vt_idx[uvIndex];
+    return uvs_[normalID];
+}
+// 获取第faceIndex个面的第uvIndex个纹理位置坐标

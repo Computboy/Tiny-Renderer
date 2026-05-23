@@ -14,7 +14,7 @@ void TriangleDraw(point3f A, point3f B, point3f C, TGAImage& framebuffer, TGACol
 void DrawWireFrame(const Model& model, TGAImage& image, int width, int height, TGAColor dotcolor = red,
                    TGAColor linecolor = white);
                    
-void Draw(const Model& model, IShader& shader, TGAImage& image, z_buffer& zbuffer, int width, int height);
+void Draw(const Model& model, IShader& shader, TGAImage& image, z_buffer& zbuffer);
 
 void Rasterization(point3f A, point3f B, point3f C, IShader& shader, TGAImage& framebuffer, z_buffer& zbuffer);
 

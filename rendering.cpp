@@ -57,7 +57,7 @@ void DrawWireFrame(const Model& model, TGAImage& image, int width, int height, T
     }
 }
 
-void Draw(const Model& model, IShader& shader, TGAImage& image, z_buffer& zbuffer, int width, int height) {
+void Draw(const Model& model, IShader& shader, TGAImage& image, z_buffer& zbuffer) {
     vec4f clipVertices[3];
     vec3f screenVertices[3];
     int faceNumber = model.faces().size();
@@ -66,7 +66,7 @@ void Draw(const Model& model, IShader& shader, TGAImage& image, z_buffer& zbuffe
             clipVertices[vertexIndex] = shader.vertex(faceIndex, vertexIndex);
             // 每个面一个循环：这里获得的是顶点着色器输出的裁剪空间中的三个点坐标
         }
-        mat4f viewport = Viewport(width, height);
+        mat4f viewport = Viewport(image.width(), image.height());
         for(int scrver = 0; scrver <=2; scrver++){
             screenVertices[scrver] = clipVertices[scrver].to_vec3();
             // 将vec4转换成vec3(齐次坐标变换)，这一步同时做了w坐标除法

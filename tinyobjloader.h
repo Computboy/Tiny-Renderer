@@ -26,12 +26,16 @@ class Model {
 
     const point3f vert(int faceIndex, int vertexIndex) const;
     const normal3f normal(int faceIndex, int normalIndex) const;
+    const uv2f uv(int faceIndex, int uvIndex) const;
 
    private:
     std::vector<point3f> vertices_;
     // 储存obj文件顶点的动态数组
     std::vector<normal3f> normals_;
     // 储存obj文件顶点法线向量的动态数组
+    std::vector<uv2f> uvs_;
+    // 储存obj文件顶点的纹理坐标
+    // 虽然vt 最多可以有三个值，但目前纹理图像均为二维的
     std::vector<Fragment> faces_;
     // 储存obj文件每个面的动态数组
 };
