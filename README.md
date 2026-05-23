@@ -132,3 +132,27 @@ Day6 完成了 Shader 抽象，Day7 立刻验证了这一架构的扩展能力�
   <img src="assets/1_7.png" width="520">
 </div>
 
+## Day 8：纹理映射与着色器封装
+
+Day7 实现了 Blinn-Phong 光照，但模型的基底颜色是固定的纯白色。Day8 引入**纹理映射（Texture Mapping）**，使物体表面从纹理贴图中采样颜色作为 baseColor，与光照结合后呈现出丰富的材质细节。
+
+**纹理映射数据流**：OBJ 的 `vt` 行 → 顶点 UV 坐标 → 重心坐标插值 → 纹理采样 → `baseColor` → Blinn-Phong 光照计算 → 像素输出。光栅化管线本身（三角形覆盖判定、重心坐标、Z-Buffer）完全不需要改动——变化全部集中在 Shader 内部。
+
+**OBJ 纹理坐标解析**：
+- 扩展 `tinyobjloader` 解析 `vt` 行，新增 `uvs_` 数组和 `uv(faceIndex, uvIndex)` 便捷方法
+- 新增 `uv2f` 类型别名（`geometry.h`），语义上区分纹理坐标与一般二维向量
+- 至此 OBJ 的三类顶点属性（位置 `v`、纹理 `vt`、法线 `vn`）全部拥有对称的访问接口：`vert()`、`uv()`、`normal()`
+
+**着色器函数封装**：将 `Blinn_PhongShader` 中的 fragment 逻辑拆分为三个独立方法：
+- `sampleDiffuse(uv)` — 从 diffuse 纹理中采样，将 TGAColor 的 BGRA 字节转换为 $[0,1]$ 范围的 `color3f`
+- `blinnPhong(baseColor, worldPos, normal)` — 计算环境光 + 漫反射 + 镜面反射，独立于颜色来源
+- `toTGAColor(result)` — 将 `color3f` 转换回 BGRA 字节顺序的 `TGAColor`
+
+**Draw 接口简化**：移除冗余的 `width`/`height` 参数，改为从 `image.width()` / `image.height()` 获取。
+
+**模型切换**：从 Diablo3 切换为 Backpack（背包），带有完整的 diffuse 纹理贴图。纹理从常见格式（`.jpg` / `.png`）通过 ImageMagick 转换为非压缩 TGA 后加载。
+
+<div align="center">
+  <img src="assets/1_8.png" width="520">
+</div>
+

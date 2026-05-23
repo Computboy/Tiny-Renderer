@@ -2015,30 +2015,301 @@ Day7 完成后，渲染器首次输出了带有光照和明暗效果的图像。
 
 > 最近专业课大作业、论文撰写等任务有点繁重，因此这个软光栅系统更新地较少！
 
-## Day 8 - More Data! 为渲染增添更多真实感
+## Day 8 - 纹理映射与着色器封装
 
-在完成基于顶点法线插值的平滑着色后，下一步是引入纹理坐标映射，使物体表面不再只是单一颜色，而是能够从纹理贴图中采样得到更丰富的表面细节。
+Day7 实现了 Blinn-Phong 光照，但模型的基底颜色（baseColor）是固定的纯白色——画面有了立体感，却缺少材质细节。Day8 的目标是引入**纹理映射（Texture Mapping）**，使物体表面能够从纹理贴图中采样得到丰富的颜色信息，同时对手动着色器中的光照计算进行函数封装，提升代码的可读性与复用性。
 
-OBJ 文件中的 `vt` 行记录了模型顶点对应的纹理坐标。需要注意的是，`vt` 本身并不存储颜色，而是给出了该顶点在二维纹理图像中的位置。真正的颜色获取发生在 fragment 阶段：先根据三角形三个顶点的 UV 坐标进行重心坐标插值，得到当前片段的 UV，再用该 UV 去 diffuse texture 中采样颜色。
+---
 
-因此，光栅化流程本身并不需要改变。Rasterizer 仍然负责三角形覆盖判断、重心坐标计算和 Z-buffer 测试；变化发生在 shader 内部：原先的 `base_color` 是固定的纯白色，现在则来自纹理贴图采样结果。
+### 1. 纹理映射的核心思路
 
-OBJ 文件的复杂之处在于，顶点位置、纹理坐标和法线通常拥有三套独立索引。例如在 `f v/vt/vn` 格式中，每个面片顶点不仅索引一个空间位置，还索引一个纹理坐标和一个法线。因此，之前的工程系统中就已经分别保存了 `v_idx`、`vt_idx` 和 `vn_idx`，以便 shader 能够在同一个三角形顶点上同时访问位置、UV 和法线信息。
+纹理映射的本质是回答一个问题：
 
-更完整的模型资源加载流程还会涉及 `.mtl` 材质文件。OBJ 文件开头可能通过 `mtllib backpack.mtl` 指定材质库，而 `.mtl` 文件内部会进一步记录漫反射颜色、镜面反射参数以及 diffuse/specular/normal 等纹理贴图路径。由此可以看出，真实渲染中的模型加载并不只是读取几何数据，更接近一个资源管理系统：模型、材质、纹理和路径解析需要被统一组织。
+> 给定屏幕上一个像素，它对应纹理图像中的哪个颜色？
 
-当前阶段可以先不完整解析 `.mtl` 文件，而是手动指定 diffuse texture 文件，优先打通以下流程：
+OBJ 文件中的 `vt` 行记录了每个顶点的**纹理坐标（UV）**——即该顶点在二维纹理图像中的位置。需要注意的是，`vt` 本身不存储颜色，它只是给出了「在哪里取色」的坐标。真正的颜色获取发生在 fragment 阶段：
+
+1. 顶点着色器从 OBJ 中读取每个顶点的 UV 坐标，传入 varying 变量；
+2. 光栅化阶段，三个顶点的 UV 坐标通过重心坐标插值，得到当前片段的 UV；
+3. 片段着色器用插值后的 UV 去纹理图像中采样，获取该位置的纹素颜色；
+4. 该颜色作为 `baseColor` 参与后续 Blinn-Phong 光照计算。
+
+因此，光栅化流程本身（三角形覆盖判定、重心坐标计算、Z-Buffer 测试）完全不需要改动——纹理映射带来的变化全部集中在 Shader 内部。
+
+---
+
+### 2. OBJ 纹理坐标解析：扩展 `vt` 行读取
+
+OBJ 文件中的 `vt` 行记录纹理坐标：
+
+```obj
+vt 0.375 0.250 0.123
+```
+
+> 其中，`vt` 行通常给出二维纹理坐标 `u, v`。部分 OBJ 文件也可能在末尾附带第三个可选分量 `w`，但当前渲染器只处理普通二维纹理图像，因此暂时只读取前两个数即可。
+
+在 Day2 的面解析中，`f` 行的第二个字段就是纹理坐标索引（`vt_idx`），`parseFaceVertex` 早已完成了三类索引的分离。因此 Day8 只需要做两件事：**存储 `vt` 数据**和**提供访问接口**。
+
+解析代码（`tinyobjloader.cpp`）：
+
+```cpp
+else if (prefix == "vt") {
+    float u, v;
+    iss >> u >> v;
+    uvs_.push_back(uv2f(u, v));
+}
+```
+
+新增的类型别名 `uv2f`（`geometry.h`）——虽然底层仍然是 `vec2<float>`，但语义上区分于一般的二维向量：
+
+```cpp
+using uv2f = vec2<float>;
+```
+
+新增的存储与访问（`tinyobjloader.h`）：
+
+```cpp
+std::vector<uv2f> uvs_;
+
+const uv2f uv(int faceIndex, int uvIndex) const;
+```
+
+`uv()` 的实现与 Day6 的 `vert()`、Day7 的 `normal()` 保持完全一致的对称模式（`tinyobjloader.cpp`）：
+
+```cpp
+const uv2f Model::uv(int faceIndex, int uvIndex) const {
+    const Fragment& frag = faces_[faceIndex];
+    int normalID = frag.vt_idx[uvIndex];
+    return uvs_[normalID];
+}
+```
+
+至此，OBJ 文件的三类顶点属性——位置（`v`）、纹理坐标（`vt`）、法线（`vn`）——全部完成解析，且拥有对称的访问接口：`vert()`、`uv()`、`normal()`。这是 OBJ 文件的一个关键特点：顶点位置、纹理坐标和法线拥有**三套独立索引**，同一个三角形顶点可以分别索引不同的位置、UV 和法线。
+
+---
+
+### 3. 着色器函数封装：`blinnPhong()`、`sampleDiffuse()` 与 `toTGAColor()`
+
+Day7 的 `Blinn_PhongShader::fragment()` 将所有光照计算写在一个函数体内。随着纹理采样的加入，fragment 阶段的逻辑变得更复杂。Day8 将三个不同职责的逻辑抽取为独立方法：
+
+#### 3.1 `sampleDiffuse()` — 纹理采样
+
+```cpp
+color3f sampleDiffuse(const uv2f& uv) const {
+    int tx = uv.x * diffusemap.width();
+    int ty = uv.y * diffusemap.height();
+
+    TGAColor color_in_tex = diffusemap.get(tx, ty);
+
+    color3f baseColor(
+        color_in_tex[2] / 255.0f,   // R
+        color_in_tex[1] / 255.0f,   // G
+        color_in_tex[0] / 255.0f    // B（TGAColor 是 BGRA 顺序）
+    );
+
+    return baseColor;
+}
+```
+
+关键点：
+
+- UV 坐标通常是 $[0, 1]$ 范围内的归一化坐标，乘以纹理图像的宽高即可得到像素级索引；
+- `TGAColor` 的通道顺序是 **BGRA**，因此 `color_in_tex[2]` 对应红色、`[1]` 对应绿色、`[0]` 对应蓝色；
+- 每个通道除以 $255.0$ 转换为 $[0, 1]$ 范围的浮点数，供后续光照计算使用。
+
+#### 3.2 `blinnPhong()` — 光照计算
+
+```cpp
+color3f blinnPhong(
+    const color3f& baseColor,
+    const vec3f& frag_WorldPos,
+    const normal3f& frag_Normal
+) const {
+    vec3f lightDir = (lightPosition - frag_WorldPos).normalize();
+    vec3f viewDir  = (cameraPos - frag_WorldPos).normalize();
+    vec3f halfwayDir = (lightDir + viewDir).normalize();
+
+    float ambientStrength = 0.10f;
+    vec3f ambient = baseColor * ambientStrength;
+
+    float diff = std::max(0.0f, dot(frag_Normal, lightDir));
+    vec3f diffuse = baseColor.cwiseproduct(lightColor) * diff;
+
+    float specularStrength = 0.45f;
+    float shininess = 32.0f;
+    float spec = std::pow(std::max(0.0f, dot(frag_Normal, halfwayDir)), shininess);
+    vec3f specular = lightColor * specularStrength * spec;
+
+    vec3f result = ambient + diffuse + specular;
+    result.x = std::clamp(result.x, 0.0f, 1.0f);
+    result.y = std::clamp(result.y, 0.0f, 1.0f);
+    result.z = std::clamp(result.z, 0.0f, 1.0f);
+
+    return result;
+}
+```
+
+这是对 Day7 fragment 中光照代码的直接提取，不改变任何计算公式。抽离后的好处是：`blinnPhong()` 只依赖三个参数——基底颜色、世界坐标、法线——无论基底颜色来自纹理采样还是固定颜色，光照计算的逻辑完全相同。
+
+#### 3.3 `toTGAColor()` — 颜色格式转换
+
+```cpp
+TGAColor toTGAColor(const color3f& result) const {
+    return TGAColor{
+        static_cast<unsigned char>(result.z * 255.0f),   // B
+        static_cast<unsigned char>(result.y * 255.0f),   // G
+        static_cast<unsigned char>(result.x * 255.0f),   // R
+        255
+    };
+}
+```
+
+将 `color3f`（`vec3<float>`，各通道 $[0, 1]$）转换为 `TGAColor`（BGRA 字节），同样需要注意通道顺序。Day7 中这段逻辑直接写在 fragment 末尾，提取后使 fragment 的代码结构更加清晰。
+
+---
+
+### 4. 纹理映射接入 Fragment 阶段
+
+有了以上三个封装方法，`fragment()` 的逻辑变得非常简洁。
+
+与 Day7 的 fragment 相比，变化只有两点：
+
+1. 新增了 `varying_uv` 的插值 + `sampleDiffuse()` 调用——原先的固定白色 `baseColor` 被纹理颜色取代；
+2. 光照计算和格式转换分别委托给 `blinnPhong()` 和 `toTGAColor()`——代码逻辑更清晰。
+
+`vertex()` 阶段也相应增加了一行：
+
+```cpp
+varying_uv[vertexIndex] = mesh.uv(faceIndex, vertexIndex);
+```
+
+从 OBJ 读取 UV 坐标并存入 varying，供 fragment 阶段插值使用。构造函数也需要新增 `const TGAImage& diffusemap` 参数来接收纹理图像。
+
+---
+
+### 5. `Draw()` 接口简化
+
+在引入纹理映射的同时，Day8 顺便简化了 `Draw()` 的函数签名：
+
+```cpp
+// Day7（旧）
+void Draw(const Model& model, IShader& shader, TGAImage& image,
+          z_buffer& zbuffer, int width, int height);
+
+// Day8（新）
+void Draw(const Model& model, IShader& shader, TGAImage& image,
+          z_buffer& zbuffer);
+```
+
+`width` 和 `height` 原本只用于构造 Viewport 矩阵，但 `image` 本身就携带了尺寸信息（`image.width()` / `image.height()`），显式传入两个额外参数属于冗余。Day8 的 `Draw()` 直接从 `image` 获取尺寸，减少了调用侧需要关心的参数数量。
+
+---
+
+### 6. 纹理文件格式转换
+
+当前项目使用 TGA 格式作为纹理贴图的存储格式（与帧缓冲输出一致）。对于常见的 `.jpg` / `.png` 纹理文件，使用 ImageMagick 转换为非压缩 TGA：
 
 ```bash
-# 转换一张图片
 convert diffuse.jpg -compress none backpackdiffuse_tga.tga
 convert diffuse.png -alpha off -compress none backpackdiffuse_tga.tga
-# 转换同级目录下所有png图片
 ```
-格式转换：目前采用的是将纹理贴图转换成tga格式，然后直接以get方法获取像素值.
-随后，在每个Face循环中，顶点着色器将把对应的uv坐标传入shader内部，并在光栅化阶段将其通过重心插值，以get方法获取像素值，并BGRA格式转换为`color3f`，改颜色就是随后Blinn-Phong计算的BaseColor
 
-同时进行着色器函数封装
+关键参数说明：
+- `-compress none`：禁用 RLE 压缩，确保 `TGAImage::read_tga_file()` 能够正确解析；
+- `-alpha off`（处理 PNG 时）：移除 alpha 通道，因为当前纹理采样不涉及透明度。
+
+---
+
+### 7. `main.cpp` 的调用
+
+```cpp
+Model Diablo3("media/Backpack/backpack.obj");
+TGAImage Diablo3_diffuse_tga;
+Diablo3_diffuse_tga.read_tga_file("media/Backpack/backpackdiffuse_tga.tga");
+
+Blinn_PhongShader myShader(
+    Diablo3,
+    modelMatrix, viewMatrix, perspectiveMatrix,
+    vec3f(1.0f, 1.0f, 1.0f),       // 白色光源
+    vec3f(2.0f, -4.0f, 6.0f),      // 点光源位置
+    CamPos,                          // 相机位置
+    Diablo3_diffuse_tga              // diffuse 纹理
+);
+
+Draw(Diablo3, myShader, framebuf, zbuffer);
+```
+
+模型从 Day7 的 Diablo3 切换为 Backpack（背包），后者带有完整的 diffuse 纹理贴图，能够更直观地验证纹理映射管线。与 Day7 相比，唯一的新增操作是 `read_tga_file()` 加载纹理，并将其传入 Shader 构造函数。
+
+另外，Day8 将 Model 矩阵的顺序调整并注释说明：
+
+```cpp
+mat4f modelMatrix = Translate(0.15f, 0.0f, 0.1f) * RotateY(35.0f) * Scale(0.4f);
+// 顺序很重要：先缩放再旋转，最后平移
+```
+
+矩阵乘法从右到左执行：首先 `Scale(0.4f)` 将模型缩放到合适大小，然后 `RotateY(35.0f)` 绕 Y 轴旋转，最后 `Translate(...)` 平移到世界空间中的位置。
+
+---
+
+### 8. 渲染结果
+
+<div align="center">
+  <img src="assets/1_8.png" width="520">
+</div>
+
+从渲染结果可以观察到纹理映射与光照的叠加效果：
+
+- **纹理颜色取代固定白色**：背包表面的布料纹理、拉链等细节清晰可见，不再是纯色填充；
+- **光照与纹理协同**：纹理提供 `baseColor`，光照在此基础上叠加明暗变化——纹理中的红色布料背光面较暗、向光面较亮；
+- **高光叠加**：Blinn-Phong 的镜面反射高光（$\vec{N} \cdot \vec{H}$）在纹理表面产生了光亮的反射效果；
+- **深度遮挡正确**：Z-Buffer 继续保证前后遮挡关系，背包的各个部件之间遮挡正确。
+
+---
+
+### 9. 材质文件 `.mtl` 的思考
+
+OBJ 文件开头可能通过 `mtllib backpack.mtl` 指定材质库：
+
+```obj
+mtllib backpack.mtl
+```
+
+`.mtl` 文件内部进一步记录漫反射颜色、镜面反射参数以及 diffuse / specular / normal 等纹理贴图路径。真实渲染管线中的模型加载远不止读取几何数据，更接近一个**资源管理系统**——模型、材质、纹理和路径解析需要被统一组织。
+
+当前阶段为了快速打通纹理映射管线，选择手动指定 diffuse texture 文件，暂不完整解析 `.mtl`。待后续引入多纹理（specular map、normal map 等）时，再实现完整的材质加载系统。
+
+---
+
+### 10. 新增 / 变更文件清单
+
+| 文件 | 变更 |
+| ---- | ---- |
+| `tinyobjloader.h` | 新增 `uvs_` 存储数组 + `uv()` 便捷访问方法 |
+| `tinyobjloader.cpp` | 新增 `vt` 行解析逻辑 + `uv()` 实现 |
+| `geometry.h` | 新增 `uv2f` 类型别名 |
+| `shader.h` | `Blinn_PhongShader` 新增 `varying_uv[3]`、`diffusemap` 成员；抽取 `sampleDiffuse()`、`blinnPhong()`、`toTGAColor()` 三个方法；构造接受 `diffusemap` 参数 |
+| `rendering.h/.cpp` | `Draw()` 移除冗余的 `width`/`height` 参数，改为从 `image` 获取 |
+| `main.cpp` | 模型切换为 Backpack；加载 diffuse TGA 纹理；传入 Shader；调整 Model 矩阵并注释 |
+
+---
+
+### 11. 当前管线总览
+
+```text
+OBJ 文件 → 顶点(位置 + 法线 + UV) + 面索引(v/vt/vn)
+         → [Model] 世界空间 — 保存 worldPos、normal、uv
+         → [View] 摄像机空间
+         → [Perspective] 裁剪空间 → [÷w] NDC → [Viewport] 屏幕空间
+         → 包围盒计算 → 叉乘半平面判定
+         → 重心坐标插值 (worldPos + normal + uv)
+         → 纹理采样 (diffuse map) → baseColor
+         → Blinn-Phong 光照计算 (ambient + diffuse + specular)
+         → 格式转换 (color3f → TGAColor)
+         → Z-Buffer 深度测试 → 像素填充 → 图像输出
+```
+
+Day8 完成后，渲染器首次输出了带有纹理贴图的 Blinn-Phong 光照图像。从「随机颜色填充」到「纯色光照」再到「纹理 + 光照」，渲染画面的信息量每一步都在跃升。同时，着色器中的光照计算完成了函数封装，`sampleDiffuse()`、`blinnPhong()` 和 `toTGAColor()` 各自承担单一职责——这些封装也为 Day9 的 normal mapping 做好了准备。
 
 ## Day 9 - TO BE CONTINUED 法线贴图
 

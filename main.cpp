@@ -15,7 +15,8 @@ int main(int argc, char** argv) {
     z_buffer zbuffer(width, std::vector<float>(height, 1.0f));
     // float精度的深度缓冲区
 
-    mat4f modelMatrix = Translate(0.1f, 0.0f, 0.1f) * RotateY(35.0f) * Scale(0.4f);
+    mat4f modelMatrix = Translate(0.15f, 0.0f, 0.1f) * RotateY(35.0f) * Scale(0.4f);
+    // 顺序很重要：先缩放再旋转，最后平移
     mat4f viewMatrix  = LookAt(CamPos, vec3f(0.0f, 0.0f, 0.0f), vec3f(0.0f, 1.0f, 0.0f));
     mat4f perspectiveMatrix = Perspective(60.0f, (float)width / (float)height, 0.1f, 100.0f);
     mat4f viewportMatrix = Viewport(width, height);

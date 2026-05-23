@@ -35,9 +35,9 @@ bool Model::load(const std::string& filename) {
             normals_.push_back(normal3f(x, y, z).normalize());
             // 阅读法线
         } else if (prefix == "vt"){
-            float x, y;
-            iss >> x >> y;
-            uvs_.push_back(uv2f(x, y));
+            float u, v;
+            iss >> u >> v;
+            uvs_.push_back(uv2f(u, v));
             // 阅读纹理坐标
         } else if (prefix == "f") {
             Fragment face;
