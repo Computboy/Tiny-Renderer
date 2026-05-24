@@ -94,6 +94,7 @@ private:
 
     uv2f varying_uv[3];
     TGAImage diffusemap;
+    TGAImage normalmap;
 
     color3f lightColor;
     vec3f lightPosition;
@@ -161,7 +162,8 @@ public:
         const color3f& lightColor_,
         const vec3f& lightPosition_,
         const vec3f& cameraPos_,
-        const TGAImage& diffusemap_
+        const TGAImage& diffusemap_,
+        const TGAImage& normalmap_
     )
         : mesh(mesh_),
           modelMatrix(modelMatrix_),
@@ -171,7 +173,8 @@ public:
           lightColor(lightColor_),
           lightPosition(lightPosition_),
           cameraPos(cameraPos_),
-          diffusemap(diffusemap_)
+          diffusemap(diffusemap_),
+          normalmap(normalmap_)
     {}
 
     vec4f vertex(int faceIndex, int vertexIndex) override {

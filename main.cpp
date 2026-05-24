@@ -22,22 +22,15 @@ int main(int argc, char** argv) {
     mat4f viewportMatrix = Viewport(width, height);
     // 矩阵变换
 
-    Model Diablo3("media/Backpack/backpack.obj");
-    TGAImage Diablo3_diffuse_tga;
-    Diablo3_diffuse_tga.read_tga_file("media/Backpack/backpackdiffuse_tga.tga");
+    Model BackPack("media/Backpack/backpack.obj");
+    TGAImage BackPack_diffuse_tga, BackPack_normal_tga;
+    BackPack_diffuse_tga.read_tga_file("media/Backpack/backpackdiffuse_tga.tga");
+    BackPack_normal_tga.read_tga_file("media/Backpack/backpacknormal_tga");
 
-    // FlatShader myShader(Diablo3, modelMatrix, viewMatrix, perspectiveMatrix);
-    Blinn_PhongShader myShader(Diablo3, modelMatrix, viewMatrix, perspectiveMatrix, vec3f(1.0f, 1.0f, 1.0f), vec3f(2.0f, -4.0f, 6.0f), CamPos, Diablo3_diffuse_tga);
+    Blinn_PhongShader myShader(BackPack, modelMatrix, viewMatrix, perspectiveMatrix, vec3f(1.0f, 1.0f, 1.0f), vec3f(2.0f, -4.0f, 6.0f), CamPos, BackPack_diffuse_tga, BackPack_normal_tga);
 
-    Draw(Diablo3, myShader, framebuf, zbuffer);
+    Draw(BackPack, myShader, framebuf, zbuffer);
     framebuf.write_tga_file("framebuffer1.tga");
-    // Model-1
-
-    // TGAImage image2_test(width, height, TGAImage::RGB);
-    // Model test2("media/HotDog_Car.obj");
-    // DrawWireFrame(test2, image2_test width, height, white, yellow,);
-    // image2_test.write_tga_file("framebuffer2.tga");
-    // // Model-2
 
     return 0;
 }

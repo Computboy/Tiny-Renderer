@@ -150,7 +150,7 @@ Day7 实现了 Blinn-Phong 光照，但模型的基底颜色是固定的纯白�
 
 **Draw 接口简化**：移除冗余的 `width`/`height` 参数，改为从 `image.width()` / `image.height()` 获取。
 
-**模型切换**：从 Diablo3 切换为 Backpack（背包），带有完整的 diffuse 纹理贴图。纹理从常见格式（`.jpg` / `.png`）通过 ImageMagick 转换为非压缩 TGA 后加载。
+**纹理图类型切换**：纹理从常见格式（`.jpg` / `.png`）通过 ImageMagick 转换为非压缩 TGA 后加载。
 
 <div align="center">
   <img src="assets/1_8.png" width="520">

@@ -2223,23 +2223,23 @@ convert diffuse.png -alpha off -compress none backpackdiffuse_tga.tga
 ### 7. `main.cpp` 的调用
 
 ```cpp
-Model Diablo3("media/Backpack/backpack.obj");
-TGAImage Diablo3_diffuse_tga;
-Diablo3_diffuse_tga.read_tga_file("media/Backpack/backpackdiffuse_tga.tga");
+Model BackPack("media/Backpack/backpack.obj");
+TGAImage BackPack_diffuse_tga;
+BackPack_diffuse_tga.read_tga_file("media/Backpack/backpackdiffuse_tga.tga");
 
 Blinn_PhongShader myShader(
-    Diablo3,
+    BackPack,
     modelMatrix, viewMatrix, perspectiveMatrix,
     vec3f(1.0f, 1.0f, 1.0f),       // 白色光源
     vec3f(2.0f, -4.0f, 6.0f),      // 点光源位置
-    CamPos,                          // 相机位置
-    Diablo3_diffuse_tga              // diffuse 纹理
+    CamPos,                        // 相机位置
+    BackPack_diffuse_tga           // diffuse 纹理
 );
 
-Draw(Diablo3, myShader, framebuf, zbuffer);
+Draw(BackPack, myShader, framebuf, zbuffer);
 ```
 
-模型从 Day7 的 Diablo3 切换为 Backpack（背包），后者带有完整的 diffuse 纹理贴图，能够更直观地验证纹理映射管线。与 Day7 相比，唯一的新增操作是 `read_tga_file()` 加载纹理，并将其传入 Shader 构造函数。
+模型为 Backpack，带有完整的 diffuse 纹理贴图，能够更直观地验证纹理映射管线。与 Day7 相比，唯一的新增操作是 `read_tga_file()` 加载纹理，并将其传入 Shader 构造函数。
 
 矩阵乘法从右到左执行：首先 `Scale(0.4f)` 将模型缩放到合适大小，然后 `RotateY(35.0f)` 绕 Y 轴旋转，最后 `Translate(...)` 平移到世界空间中的位置。
 
