@@ -132,7 +132,7 @@ Day6 完成了 Shader 抽象，Day7 立刻验证了这一架构的扩展能力�
   <img src="assets/1_7.png" width="520">
 </div>
 
-## Day 8：纹理映射与着色器封装
+## Day 8：纹理映射与着色器函数封装
 
 Day7 实现了 Blinn-Phong 光照，但模型的基底颜色是固定的纯白色。Day8 引入**纹理映射（Texture Mapping）**，使物体表面从纹理贴图中采样颜色作为 baseColor，与光照结合后呈现出丰富的材质细节。
 

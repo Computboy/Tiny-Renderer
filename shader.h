@@ -315,21 +315,33 @@ public:
     }
 
     std::pair<bool, TGAColor> fragment(const vec3f& bar) const override {
+        float inv_w0 = 1.0f / gl_Position[0].w;
+        float inv_w1 = 1.0f / gl_Position[1].w;
+        float inv_w2 = 1.0f / gl_Position[2].w;
+
+        float z = bar.x * inv_w0 + bar.y * inv_w1 + bar.z * inv_w2;
+
+        vec3f bc(
+            bar.x * inv_w0 / z,
+            bar.y * inv_w1 / z,
+            bar.z * inv_w2 / z
+        );
+
         vec3f frag_WorldPos =
-            varying_worldPos[0] * bar.x +
-            varying_worldPos[1] * bar.y +
-            varying_worldPos[2] * bar.z;
+            varying_worldPos[0] * bc.x +
+            varying_worldPos[1] * bc.y +
+            varying_worldPos[2] * bc.z;
 
         normal3f frag_Normal =(
-                varying_normal[0] * bar.x +
-                varying_normal[1] * bar.y +
-                varying_normal[2] * bar.z
+                varying_normal[0] * bc.x +
+                varying_normal[1] * bc.y +
+                varying_normal[2] * bc.z
             ).normalize();
 
         uv2f bary_uv_coordinate =
-            varying_uv[0] * bar.x +
-            varying_uv[1] * bar.y +
-            varying_uv[2] * bar.z;
+            varying_uv[0] * bc.x +
+            varying_uv[1] * bc.y +
+            varying_uv[2] * bc.z;
 
         color3f baseColor = sampleDiffuse(bary_uv_coordinate);
         // 从 diffuse map 中获取基础颜色。
@@ -343,7 +355,8 @@ public:
         vec3f B = cross(N, T).normalize() * faceTangentSign;
 
         vec3f n_tangent = sampleNormalTangent(bary_uv_coordinate);
-
+        // n_tangent = vec3f(0.0f, 0.0f ,1.0f);
+        // 如果怀疑是TBN矩阵计算出错，可以手动将采样到的Normal全部置换成(0,0,1)，看效果是否回退至原先样式
         vec3f finalNormal =
             T * n_tangent.x +
             B * n_tangent.y +
@@ -359,6 +372,9 @@ public:
         TGAColor color = toTGAColor(result);
         // 将 vec3f 转换成 TGAColor 类型，以在 tga 图像中显示。
 
+        // vec3f n = sampleNormalTangent(bary_uv_coordinate);
+        // vec3f debug = n * 0.5f + vec3f(0.5f, 0.5f, 0.5f);
+        // return {false, toTGAColor(debug)};
         return {false, color};
     }
 
