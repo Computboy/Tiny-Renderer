@@ -2241,13 +2241,6 @@ Draw(Diablo3, myShader, framebuf, zbuffer);
 
 模型从 Day7 的 Diablo3 切换为 Backpack（背包），后者带有完整的 diffuse 纹理贴图，能够更直观地验证纹理映射管线。与 Day7 相比，唯一的新增操作是 `read_tga_file()` 加载纹理，并将其传入 Shader 构造函数。
 
-另外，Day8 将 Model 矩阵的顺序调整并注释说明：
-
-```cpp
-mat4f modelMatrix = Translate(0.15f, 0.0f, 0.1f) * RotateY(35.0f) * Scale(0.4f);
-// 顺序很重要：先缩放再旋转，最后平移
-```
-
 矩阵乘法从右到左执行：首先 `Scale(0.4f)` 将模型缩放到合适大小，然后 `RotateY(35.0f)` 绕 Y 轴旋转，最后 `Translate(...)` 平移到世界空间中的位置。
 
 ---
@@ -2322,3 +2315,24 @@ Day8 完成后，渲染器首次输出了带有纹理贴图的 Blinn-Phong 光�
 | 真实改变模型表面高度 | 不能        |
 
 切线空间，当前 diffuse texture mapping 暂时不需要深入处理。它主要会在后续 tangent-space normal mapping、parallax mapping 或 displacement mapping 等技术中变得重要。对于法线贴图，纹理中存储的三维向量通常需要从 `[0, 255]` 映射到 `[-1, 1]`，再通过 TBN 矩阵转换到合适的空间中参与光照计算。同时还要注意 TGA 图像常见的 BGRA 存储顺序。
+
+### 切线空间（Tangent Space）与TBN矩阵
+
+| 轴                 | 含义     | 对应纹理方向      |
+| ----------------- | ------ | ----------- |
+| **Tangent / T**   | 切线方向   | UV 的 `u` 方向 |
+| **Bitangent / B** | 副切线方向  | UV 的 `v` 方向 |
+| **Normal / N**    | 几何法线方向 | 表面向外方向      |
+
+> 法线贴图中大部分面积的颜色不是$[0, 0, 1]$而是$[0.5 ,0.5, 1.0]$呈现蓝紫色。这是因相对于切线空间的法线方向通常是无扰动的$[0, 0, 1]$，需要从`[-1, 1]` 映射回到 `[0, 255]`
+
+$$
+T = \dfrac{\partial P}{\partial u}\\- \\
+B = \dfrac{\partial P}{\partial v}\\ -\\
+N = \text{Normalize}(T \times B)
+$$
+其中，$\partial P$指的是模型真实世界坐标下位置的变动，$\partial u$指的是u坐标先映射到三维坐标中，然后进行的变动。
+
+> 可以说，TB这两个方向标定了贴合模型的表面。
+
+在实际软光栅渲染中，由于根据$N = \text{Normalize}(T \times B)$叉乘计算得到的N分量可能与真实模型表面法线有误差，导致TBN矩阵不正交（就不能使用转置 = inverse）工程上我决定采用只计算T，然后根据T*N叉乘算出B。既节省了计算量，又能得到相对正确的TBN切线空间变换矩阵
