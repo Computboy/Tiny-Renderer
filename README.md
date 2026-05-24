@@ -156,3 +156,40 @@ Day7 实现了 Blinn-Phong 光照，但模型的基底颜色是固定的纯白�
   <img src="assets/1_8.png" width="520">
 </div>
 
+## Day 9：法线贴图与 TBN 切线空间
+
+Day8 的 diffuse 纹理为模型赋予了颜色细节，但光照计算的法线仍然是顶点法线的平滑插值——低模的三角形面数有限，无法表达表面的细微凹凸。Day9 引入**法线贴图（Normal Mapping）**，在不增加几何面数的前提下，通过纹理中编码的逐像素法线扰动，使低模在光照下呈现出高模才具备的表面细节。
+
+**法线贴图的能力边界**：能伪造光照下的凹凸感，但不能改变真实的几何轮廓——侧面边缘仍然是低模的直线。
+
+**切线空间（Tangent Space）**是法线贴图的核心坐标系——一个贴合三角形表面的局部坐标系。其三个轴分别为：
+- **T（Tangent）**：沿 UV 的 $u$ 方向
+- **B（Bitangent）**：沿 UV 的 $v$ 方向  
+- **N（Normal）**：表面几何法线方向
+
+法线贴图中的蓝紫色（RGB ≈ 128, 128, 255）正是无扰动法线 $(0, 0, 1)$ 映射到 $[0, 255]$ 存储空间的结果。
+
+**TBN 矩阵**将采样到的切线空间法线变换到世界空间参与光照计算。T 和 B 的方向从三角形的世界空间边向量与 UV 差分反解得到：
+
+$$\vec{T} = \frac{\vec{E}_1 \Delta v_2 - \vec{E}_2 \Delta v_1}{\det}, \quad \vec{B} = \frac{\vec{E}_2 \Delta u_1 - \vec{E}_1 \Delta u_2}{\det}$$
+
+其中 $\vec{E}_1, \vec{E}_2$ 为世界空间三角形边，$\Delta u_i, \Delta v_i$ 为对应 UV 差分，$\det = \Delta u_1 \Delta v_2 - \Delta u_2 \Delta v_1$。
+
+**工程优化 — TBN 正交化**：从边和 UV 算出的 T/B 与插值后的 N 可能不正交。工程方案是只计算 T，在 fragment 阶段通过 Gram-Schmidt 将其与插值 N 正交化，再用叉乘重建 B（附带 handedness 符号校正）。这样得到的 TBN 矩阵是正交的，可直接用转置进行逆变换：
+
+```cpp
+T = (T - N * dot(T, N)).normalize();
+B = cross(N, T).normalize() * faceTangentSign;
+finalNormal = T * nx + B * ny + N * nz;
+```
+
+**法线采样**：纹素从 $[0, 255]$ 字节映射到 $[-1, 1]$ 浮点向量（`n * 2.0 - 1.0`），经 TBN 变换后送入 Blinn-Phong 光照。
+
+**透视矫正插值**：修复了透视投影下属性插值的理论缺陷——屏幕空间中线性的不是属性 $a$，而是 $a/w$ 和 $1/w$。通过先插值 $a/w$ 再除以 $1/w$，得到正确的逐像素属性值：
+
+$$a_{\text{corrected}} = \frac{\sum \alpha_i \cdot a_i / w_i}{\sum \alpha_i / w_i}$$
+
+<div align="center">
+  <img src="assets/1_9.png" width="520">
+</div>
+

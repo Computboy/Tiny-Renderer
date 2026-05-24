@@ -2306,53 +2306,321 @@ Day8 完成后，渲染器首次输出了带有纹理贴图的 Blinn-Phong 光�
 
 ## Day 9 - 法线贴图
 
-| 效果         | 法线贴图能不能做到 |
-| ---------- | --------- |
-| 表面看起来有凹凸   | 能         |
-| 光照有细节变化    | 能         |
-| 低模看起来像高模   | 能         |
-| 侧面轮廓真的变复杂  | 不能        |
-| 真实改变模型表面高度 | 不能        |
+Day8 引入的 diffuse 纹理为模型表面赋予了颜色细节，但光照计算使用的法线仍然是顶点法线重心插值的结果——低模的三角形数量有限，法线方向在面内平滑过渡，无法表达表面细微的凹凸起伏。Day9 的目标是引入 **法线贴图（Normal Mapping）**，通过纹理中编码的逐像素法线扰动，让低面数模型在光照下呈现出高面数模型才具备的表面细节。
 
-切线空间，当前 diffuse texture mapping 暂时不需要深入处理。它主要会在后续 tangent-space normal mapping、parallax mapping 或 displacement mapping 等技术中变得重要。对于法线贴图，纹理中存储的三维向量通常需要从 `[0, 255]` 映射到 `[-1, 1]`，再通过 TBN 矩阵转换到合适的空间中参与光照计算。同时还要注意 TGA 图像常见的 BGRA 存储顺序。
+---
 
-### 切线空间（Tangent Space）与TBN矩阵
+### 1. 法线贴图的能力边界
 
-| 轴                 | 含义     | 对应纹理方向      |
-| ----------------- | ------ | ----------- |
-| **Tangent / T**   | 切线方向   | UV 的 `u` 方向 |
-| **Bitangent / B** | 副切线方向  | UV 的 `v` 方向 |
-| **Normal / N**    | 几何法线方向 | 表面向外方向      |
+在深入实现之前，先厘清法线贴图能做什么、不能做什么：
 
-> 法线贴图中大部分面积的颜色不是$[0, 0, 1]$而是$[0.5 ,0.5, 1.0]$呈现蓝紫色。这是因相对于切线空间的法线方向通常是无扰动的$[0, 0, 1]$，需要从`[-1, 1]` 映射回到 `[0, 255]`
+| 效果 | 法线贴图能否做到 |
+| ---- | ---------------- |
+| 表面看起来有凹凸起伏 | 能 |
+| 光照随表面细节变化 | 能 |
+| 低模看起来像高模 | 能 |
+| 侧面轮廓真的变复杂 | **不能** |
+| 真实改变模型表面高度 | **不能** |
+
+法线贴图本质上是一种 **光照欺骗**：它改变了每个像素参与光照计算的法线方向，使光线在表面上的明暗分布看起来像是有凹凸，但实际的几何形状（三角形位置和数量）完全没有改变。因此，轮廓边缘仍然是低模的直线边缘——这是法线贴图与位移贴图（Displacement Mapping）之间的根本区别。
+
+---
+
+### 2. 切线空间（Tangent Space）与 TBN 矩阵
+
+#### 2.1 为什么需要切线空间
+
+法线贴图中的每个纹素（texel）是一个三维向量，表示该点法线相对于表面几何法线的 **偏移**。这个偏移必须在某个坐标系中表达才有意义。如果直接存储世界空间法线，那么当模型旋转或移动时，法线贴图就失效了——因为法线方向是相对于世界坐标系固定的。
+
+解决方案是 **切线空间（Tangent Space）**——一个贴合于三角形表面的局部坐标系：
+
+| 轴 | 含义 | 对应方向 |
+| -- | ---- | -------- |
+| **Tangent / T** | 切线方向 | 沿纹理 UV 的 $u$ 方向 |
+| **Bitangent / B** | 副切线方向 | 沿纹理 UV 的 $v$ 方向 |
+| **Normal / N** | 几何法线方向 | 表面向外 |
+
+在切线空间中，一个完全平坦的表面，其法线就是 $(0, 0, 1)$——直接指向表面外侧。法线贴图中大部分区域之所以呈现 **蓝紫色**（RGB ≈ (128, 128, 255)），正是因为无扰动法线 $(0, 0, 1)$ 在映射到 $[0, 255]$ 存储范围时，恰好对应 $(0.5, 0.5, 1.0) \times 255$。
+
+#### 2.2 TBN 矩阵：切线空间 → 世界空间
+
+TBN 矩阵将法线从切线空间变换到世界空间（或其他光照计算所使用的空间）：
 
 $$
-T = \dfrac{\partial P}{\partial u}\\- \\
-B = \dfrac{\partial P}{\partial v}\\ -\\
-N = \text{Normalize}(T \times B)
+\begin{bmatrix} N_x^{\text{world}} \\ N_y^{\text{world}} \\ N_z^{\text{world}} \end{bmatrix}
+= \begin{bmatrix} \vec{T} & \vec{B} & \vec{N} \end{bmatrix}
+\begin{bmatrix} N_x^{\text{tangent}} \\ N_y^{\text{tangent}} \\ N_z^{\text{tangent}} \end{bmatrix}
 $$
-其中，$\partial P$指的是模型真实世界坐标下位置的变动，$\partial u$指的是u坐标先映射到三维坐标中，然后进行的变动。
 
-> 可以说，TB这两个方向标定了贴合模型的表面。
+其中 $\vec{T}, \vec{B}, \vec{N}$ 是世界空间中的切线、副切线和法线方向（列向量）。对于正交的 TBN 矩阵，其逆矩阵等于转置——这是后续从切线空间到世界空间高效变换的基础。
 
-在实际软光栅渲染中，由于根据$N = \text{Normalize}(T \times B)$叉乘计算得到的N分量可能与真实模型表面法线有误差，导致TBN矩阵不正交（就不能使用转置 = inverse）工程上我决定采用只计算T，然后根据T*N叉乘算出B。既节省了计算量，又能得到相对正确的TBN切线空间变换矩阵
+---
 
-如果对底层数学感兴趣 → [](attachments/手推TBN矩阵.pdf)
+### 3. 从三角形边与 UV 差分计算 T / B
 
-值得一提的是，一开始我以为是TBN计算有问题，结果法线纹理本身就是这样的：
+设三角形的三个顶点在世界空间中的位置为 $\vec{P}_0, \vec{P}_1, \vec{P}_2$，对应的 UV 坐标为 $(u_0, v_0), (u_1, v_1), (u_2, v_2)$。
+
+定义两条边向量：
+
+$$
+\begin{aligned}
+\vec{E}_1 &= \vec{P}_1 - \vec{P}_0 \\
+\vec{E}_2 &= \vec{P}_2 - \vec{P}_0
+\end{aligned}
+$$
+
+以及对应的 UV 差分：
+
+$$
+\begin{aligned}
+\Delta u_1 &= u_1 - u_0, \quad \Delta v_1 = v_1 - v_0 \\
+\Delta u_2 &= u_2 - u_0, \quad \Delta v_2 = v_2 - v_0
+\end{aligned}
+$$
+
+$\vec{T}$ 的方向是「UV 的 $u$ 方向在世界空间中的方向」，即当 $u$ 变化 1 个单位时，世界空间位置的变化量。同理 $\vec{B}$ 对应 $v$ 方向。由于 $\vec{E}_1$ 和 $\vec{E}_2$ 分别沿着 $\Delta u_1 : \Delta v_1$ 和 $\Delta u_2 : \Delta v_2$ 的方向，有：
+
+$$
+\begin{aligned}
+\vec{E}_1 &= \Delta u_1 \cdot \vec{T} + \Delta v_1 \cdot \vec{B} \\
+\vec{E}_2 &= \Delta u_2 \cdot \vec{T} + \Delta v_2 \cdot \vec{B}
+\end{aligned}
+$$
+
+写成矩阵形式：
+
+$$
+\begin{bmatrix} \vec{E}_1 & \vec{E}_2 \end{bmatrix} =
+\begin{bmatrix} \vec{T} & \vec{B} \end{bmatrix}
+\begin{bmatrix} \Delta u_1 & \Delta u_2 \\ \Delta v_1 & \Delta v_2 \end{bmatrix}
+$$
+
+对 UV 矩阵取逆，即可解出 $\vec{T}$ 和 $\vec{B}$：
+
+$$
+\begin{bmatrix} \vec{T} & \vec{B} \end{bmatrix} =
+\begin{bmatrix} \vec{E}_1 & \vec{E}_2 \end{bmatrix}
+\cdot \frac{1}{\Delta u_1 \Delta v_2 - \Delta u_2 \Delta v_1}
+\begin{bmatrix} \Delta v_2 & -\Delta v_1 \\ -\Delta u_2 & \Delta u_1 \end{bmatrix}
+$$
+
+展开得到：
+
+$$
+\boxed{\vec{T} = \frac{\vec{E}_1 \Delta v_2 - \vec{E}_2 \Delta v_1}{\Delta u_1 \Delta v_2 - \Delta u_2 \Delta v_1}}, \qquad
+\boxed{\vec{B} = \frac{\vec{E}_2 \Delta u_1 - \vec{E}_1 \Delta u_2}{\Delta u_1 \Delta v_2 - \Delta u_2 \Delta v_1}}
+$$
+
+代码实现（`shader.h` — `computeFaceTangent()`）：
+
+```cpp
+vec3f e1 = p1 - p0;
+vec3f e2 = p2 - p0;
+
+uv2f duv1 = uv1 - uv0;
+uv2f duv2 = uv2 - uv0;
+
+float det = duv1.x * duv2.y - duv2.x * duv1.y;
+float r = 1.0f / det;
+
+faceTangent   = (e1 * duv2.y - e2 * duv1.y) * r;
+faceBitangent = (e2 * duv1.x - e1 * duv2.x) * r;
+```
+
+对于 UV 退化的三角形（$\det \approx 0$），无法从 UV 反解 T/B，此时构造任意一组与面法线垂直的正交基作为 fallback。
+
+> 完整的 TBN 数学推导见 [手推 TBN 矩阵.pdf](attachments/手推TBN矩阵.pdf)。
+
+---
+
+### 4. TBN 正交化与 Handedness 处理
+
+上述公式计算出的 $\vec{T}$ 和 $\vec{B}$ 在数学上是正确的，但存在一个工程问题：三角形三个顶点的法线经过重心插值后得到的逐像素法线 $\vec{N}_{\text{interp}}$，与 $\vec{T} \times \vec{B}$ 的方向并不完全一致。直接用非正交的 TBN 矩阵变换法线会产生方向偏差——且无法利用「正交矩阵的逆 = 转置」这一性质。
+
+工程上的优化方案是：**只从三角形边计算 $\vec{T}$，然后在 fragment 阶段用插值后的 $\vec{N}$ 与其正交化，再以叉乘重建 $\vec{B}$**。
+
+**`computeFaceTangent()` 中 （每个三角形执行一次）**：
+
+```cpp
+// 计算 T 和 B 后，将 T 投影到垂直于 N 的平面上
+faceTangent = (faceTangent - faceNormal * dot(faceTangent, faceNormal)).normalize();
+
+// 计算 handedness：uv 坐标是否存在镜像翻转
+vec3f B_from_cross = cross(faceNormal, faceTangent).normalize();
+faceTangentSign = dot(B_from_cross, faceBitangent) < 0.0f ? -1.0f : 1.0f;
+```
+
+**`fragment()` 阶段（每个像素执行一次）**：
+
+```cpp
+vec3f N = frag_Normal.normalize();
+vec3f T = faceTangent.normalize();
+T = (T - N * dot(T, N)).normalize();           // 正交化：Gram-Schmidt
+vec3f B = cross(N, T).normalize() * faceTangentSign;  // 叉乘重建，校正手性
+```
+
+这样得到的 TBN 矩阵满足正交性，其转置即为逆矩阵，可直接用于切线空间法线到世界空间的变换：
+
+```cpp
+vec3f finalNormal = T * n_tangent.x + B * n_tangent.y + N * n_tangent.z;
+```
+
+---
+
+### 5. 法线纹理采样
+
+法线纹理中存储的法线向量需要经过两层转换才能参与光照计算：
+
+**Step 1 — 从纹素字节到 $[-1, 1]$ 浮点向量**：
+
+纹理中存储的值范围是 $[0, 255]$，而真实法线分量范围是 $[-1, 1]$。转换公式：
+
+$$
+\text{normal} = \frac{\text{texel}}{255.0} \times 2.0 - 1.0
+$$
+
+代码（`sampleNormalTangent()`）：
+
+```cpp
+// TGAColor: BGRA -> RGB
+vec3f n(color_in_tex[2] / 255.0f,  // R
+        color_in_tex[1] / 255.0f,  // G
+        color_in_tex[0] / 255.0f); // B
+
+n = n * 2.0f - vec3f(1.0f, 1.0f, 1.0f);
+return n.normalize();
+```
+
+> 注意 TGAColor 的 BGRA 存储顺序：`color_in_tex[2]` 才是红色通道，`[0]` 是蓝色。
+
+**Step 2 — 从切线空间到世界空间**：通过 TBN 矩阵将采样到的切线空间法线变换到世界空间后，作为 `blinnPhong()` 的法线输入。
+
+调试技巧：如果怀疑 TBN 矩阵计算有误，可以将采样到的法线全部替换为 $(0, 0, 1)$（切线空间无扰动法线），观察渲染效果是否回退到不使用法线贴图的样式：
+
+```cpp
+// n_tangent = vec3f(0.0f, 0.0f, 1.0f);  // 取消注释即可验证
+```
+
+---
+
+### 6. 透视矫正插值
+
+Day4–Day8 的 fragment 阶段直接使用屏幕空间重心坐标 $(α, β, γ)$ 对顶点属性进行线性插值。这在正交投影下是正确的，但在透视投影下会产生扭曲——因为透视除法（除以 $w$）破坏了属性在屏幕空间中的线性关系。
+
+**核心原理**：在屏幕空间中，线性变化的不是属性 $a$ 本身，而是 $a/w$ 和 $1/w$。因此正确的插值方法是：
+
+1. 对每个顶点的 $a/w$ 和 $1/w$ 做屏幕空间重心插值；
+2. 将插值得到的 $(a/w)$ 除以 $(1/w)$，恢复 $a$。
+
+即：
+
+$$
+a_{\text{corrected}} = \frac{α \cdot a_0/w_0 + β \cdot a_1/w_1 + γ \cdot a_2/w_2}{α/w_0 + β/w_1 + γ/w_2}
+$$
+
+代码实现（`fragment()` 开头）：
+
+```cpp
+float inv_w0 = 1.0f / gl_Position[0].w;
+float inv_w1 = 1.0f / gl_Position[1].w;
+float inv_w2 = 1.0f / gl_Position[2].w;
+
+float z = bar.x * inv_w0 + bar.y * inv_w1 + bar.z * inv_w2;
+
+vec3f bc(
+    bar.x * inv_w0 / z,
+    bar.y * inv_w1 / z,
+    bar.z * inv_w2 / z
+);
+```
+
+此后的世界坐标、法线、UV 插值全部使用透视矫正后的 `bc` 而非原始的 `bar`。
+
+---
+
+### 7. Fragment 阶段的完整数据流
+
+整合以上所有步骤，Day9 的 fragment shader 数据流如下：
+
+```text
+屏幕空间重心坐标 (α, β, γ)
+        │
+        │  透视矫正：α_i' = (α_i / w_i) / Σ(α_j / w_j)
+        ▼
+透视矫正重心坐标 bc
+        │
+        ├──→ 插值 worldPos ──→ 用于计算 lightDir / viewDir
+        ├──→ 插值 normal   ──→ 作为 TBN 的 N 轴
+        ├──→ 插值 uv       ──→ sampleDiffuse(uv) → baseColor
+        │                  ──→ sampleNormalTangent(uv) → n_tangent
+        │
+        ▼
+TBN 正交化 + 变换：finalNormal = T·nx + B·ny + N·nz
+        │
+        ▼
+blinnPhong(baseColor, worldPos, finalNormal)
+        │
+        ▼
+toTGAColor(result) → 像素输出
+```
+
+---
+
+### 8. 调试经验：怀疑 TBN 还是怀疑纹理
+
+在实现过程中，曾有一段时间渲染结果不理想——法线贴图的凹凸效果不明显或方向异常。最初的怀疑是 TBN 矩阵计算有误，但经过对比排查后发现，**法线贴图纹理本身就包含了丰富的表面细节，而这些细节在光照下自然会产生与无贴图时不同的明暗分布**。
 
 <div align="center">
   <img src="attachments/细节对比.png" width="520">
 </div>
 
-shader里面应该保留一点debug语句
+一个实用的调试手段是在 shader 中保留被注释的 debug 语句（如直接输出法线贴图的颜色、或将扰动法线强制置为 $(0,0,1)$），以便后续遇到类似问题时快速定位根因。
 
-最后补偿一下透视除法：
-应该使用矫正过后的系数进行插值。在此不作赘述了
-透视矫正插值的本质，就是补偿透视除法 /w 对属性线性关系造成的扭曲。屏幕空间里线性的不是属性 a，而是 a/w 和 1/w；所以先插 a/w，再除以插值得到的 1/w。
+---
 
-最后成果：
+### 9. 渲染结果
 
 <div align="center">
   <img src="assets/1_9.png" width="520">
 </div>
+
+从渲染结果可以观察到法线贴图的显著效果：
+
+- **表面凹凸感**：背包的缝线、褶皱、拉链等细节在光照下呈现出明显的凹凸立体感——这些细节在几何上并不存在，完全由法线贴图驱动；
+- **光照细节增强**：同一个三角形平面内，法线逐像素变化导致漫反射和高光分量随之变化，产生丰富的表面明暗细节；
+- **轮廓不变**：背包的外轮廓边缘仍然是低面数模型的直线边缘——这正是法线贴图「伪造光照而非伪造几何」的典型特征；
+- **纹理 + 法线协同**：diffuse 纹理提供基底颜色，normal map 调制法线方向，Blinn-Phong 光照将两者结合为最终的像素颜色。
+
+---
+
+### 10. 新增 / 变更文件清单
+
+| 文件 | 变更 |
+| ---- | ---- |
+| `shader.h` | `Blinn_PhongShader` 新增 `normalmap`、`faceTangent`、`faceBitangent`、`faceTangentSign` 成员；新增 `sampleNormalTangent()`、`computeFaceTangent()` 方法；`vertex()` 新增 UV 读取与 TBN 计算触发；`fragment()` 引入透视矫正插值 + TBN 正交化 + 法线扰动；构造函数接受 `normalmap` 参数 |
+| `main.cpp` | 加载 `backpacknormal_tga.tga` 法线纹理，传入 Shader 构造函数 |
+| `attachments/手推TBN矩阵.pdf` | **新增** — TBN 矩阵的完整数学推导 |
+
+---
+
+### 11. 当前管线总览
+
+```text
+OBJ 文件 → 顶点(位置 + 法线 + UV) + 面索引(v/vt/vn)
+         → [Model] 世界空间 — 保存 worldPos、normal、uv
+         → 三角形级 T/B 计算 (computeFaceTangent，从边与 UV 差分)
+         → [View] 摄像机空间
+         → [Perspective] 裁剪空间 → [÷w] NDC → [Viewport] 屏幕空间
+         → 包围盒计算 → 叉乘半平面判定
+         → 透视矫正插值 (a/w ÷ 1/w) → worldPos + normal + uv
+         → 纹理采样: diffuse map → baseColor
+         → 纹理采样: normal map → n_tangent (切线空间)
+         → TBN 正交化 + 变换: n_tangent → worldNormal
+         → Blinn-Phong 光照计算 (ambient + diffuse + specular)
+         → 格式转换 (color3f → TGAColor)
+         → Z-Buffer 深度测试 → 像素填充 → 图像输出
+```
+
+Day9 完成后，渲染器具备了法线贴图能力——低面数模型在光照下可以呈现出丰富的表面凹凸细节。从「纯色填充」到「纹理 + 光照」再到「法线贴图 + 纹理 + 光照」，画面的真实感每一步都在跃升。同时，透视矫正插值的引入修复了透视投影下顶点属性插值的理论缺陷，使大角度透视下的纹理和法线插值更加准确。
+
+> Day9 涉及较多数学推导，完整的 TBN 推导细节见 [attachments/手推TBN矩阵.pdf](attachments/手推TBN矩阵.pdf)。
