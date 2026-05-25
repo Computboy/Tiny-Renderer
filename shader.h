@@ -103,6 +103,7 @@ private:
 
     TGAImage diffusemap;
     TGAImage normalmap;
+    TGAImage specularmap;
 
     color3f lightColor;
     vec3f lightPosition;
@@ -139,6 +140,22 @@ private:
         );
 
         return baseColor;
+    }
+
+    float sampleSpecular(const uv2f& uv) const {
+        if (specularmap.width() <= 0 || specularmap.height() <= 0) {
+            return 0.0f;
+        }
+
+        int tx = clampTexelX(uv.x, specularmap);
+        int ty = clampTexelY(uv.y, specularmap);
+
+        TGAColor color_in_tex = specularmap.get(tx, ty);
+
+        // TGAColor 存储顺序是 BGRA，这里转成 RGB float。
+        float SpecColor = color_in_tex[0] / 255.0f;
+
+        return SpecColor;
     }
 
     vec3f sampleNormalTangent(const uv2f& uv) const {
@@ -223,6 +240,7 @@ private:
 
     color3f blinnPhong(
         const color3f& baseColor,
+        const float& specularColor,
         const vec3f& frag_WorldPos,
         const normal3f& frag_Normal
     ) const {
@@ -237,7 +255,7 @@ private:
         float diff = std::max(0.0f, dot(frag_Normal, lightDir));
         vec3f diffuse = baseColor.cwiseproduct(lightColor) * diff;
 
-        float specularStrength = 0.45f;
+        float specularStrength = 0.45f * specularColor;
         float shininess = 32.0f;
 
         float spec = std::pow(std::max(0.0f, dot(frag_Normal, halfwayDir)), shininess);
@@ -272,7 +290,8 @@ public:
         const vec3f& lightPosition_,
         const vec3f& cameraPos_,
         const TGAImage& diffusemap_,
-        const TGAImage& normalmap_
+        const TGAImage& normalmap_,
+        const TGAImage& specularmap_
     )
         : mesh(mesh_),
           modelMatrix(modelMatrix_),
@@ -284,6 +303,7 @@ public:
           faceTangentSign(1.0f),
           diffusemap(diffusemap_),
           normalmap(normalmap_),
+          specularmap(specularmap_),
           lightColor(lightColor_),
           lightPosition(lightPosition_),
           cameraPos(cameraPos_)
@@ -345,6 +365,7 @@ public:
 
         color3f baseColor = sampleDiffuse(bary_uv_coordinate);
         // 从 diffuse map 中获取基础颜色。
+        float specColor = sampleSpecular(bary_uv_coordinate);
 
         // ===== Normal Mapping: tangent space -> world space =====
         vec3f N = frag_Normal.normalize();
@@ -366,7 +387,7 @@ public:
         // 计算最终法线，切线空间扰动 → 世界坐标系下计算光照使用
         // =======================================================
 
-        color3f result = blinnPhong(baseColor, frag_WorldPos, finalNormal);
+        color3f result = blinnPhong(baseColor, specColor, frag_WorldPos, finalNormal);
         // 调用封装函数计算 Blinn-Phong 光照。
 
         TGAColor color = toTGAColor(result);

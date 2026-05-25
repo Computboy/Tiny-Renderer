@@ -23,11 +23,12 @@ int main(int argc, char** argv) {
     // 矩阵变换
 
     Model BackPack("media/Backpack/backpack.obj");
-    TGAImage BackPack_diffuse_tga, BackPack_normal_tga;
+    TGAImage BackPack_diffuse_tga, BackPack_normal_tga, BackPack_specular_tga;
     BackPack_diffuse_tga.read_tga_file("media/Backpack/backpackdiffuse_tga.tga");
     BackPack_normal_tga.read_tga_file("media/Backpack/backpacknormal_tga.tga");
+    BackPack_specular_tga.read_tga_file("media/Backpack/backpackspecular_tga.tga");
 
-    Blinn_PhongShader myShader(BackPack, modelMatrix, viewMatrix, perspectiveMatrix, vec3f(1.0f, 1.0f, 1.0f), vec3f(2.0f, -4.0f, 6.0f), CamPos, BackPack_diffuse_tga, BackPack_normal_tga);
+    Blinn_PhongShader myShader(BackPack, modelMatrix, viewMatrix, perspectiveMatrix, vec3f(1.0f, 1.0f, 1.0f), vec3f(2.0f, -4.0f, 6.0f), CamPos, BackPack_diffuse_tga, BackPack_normal_tga, BackPack_specular_tga);
 
     Draw(BackPack, myShader, framebuf, zbuffer);
     framebuf.write_tga_file("framebuffer1.tga");
