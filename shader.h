@@ -122,6 +122,23 @@ private:
         return std::clamp(y, 0, image.height() - 1);
     }
 
+    float sampleAlpha(const uv2f& uv) const {
+        // 获取透明通道值，目前用于Alpha-Testing
+        if (diffusemap.width() <= 0 || diffusemap.height() <= 0) {
+            return 1.0f;
+        }
+        
+        if (diffusemap.getBpp() < TGAImage::RGBA) {
+            return 1.0f;
+        }
+        int tx = clampTexelX(uv.x, diffusemap);
+        int ty = clampTexelY(uv.y, diffusemap);
+
+        TGAColor color_in_tex = diffusemap.get(tx, ty);
+
+        return color_in_tex[3] / 255.0f;
+    }
+
     color3f sampleDiffuse(const uv2f& uv) const {
         if (diffusemap.width() <= 0 || diffusemap.height() <= 0) {
             return color3f(1.0f, 1.0f, 1.0f);
@@ -255,7 +272,7 @@ private:
         float diff = std::max(0.0f, dot(frag_Normal, lightDir));
         vec3f diffuse = baseColor.cwiseproduct(lightColor) * diff;
 
-        float specularStrength = 0.45f * specularColor;
+        float specularStrength = 0.9f * specularColor;
         float shininess = 32.0f;
 
         float spec = std::pow(std::max(0.0f, dot(frag_Normal, halfwayDir)), shininess);
@@ -289,9 +306,10 @@ public:
         const color3f& lightColor_,
         const vec3f& lightPosition_,
         const vec3f& cameraPos_,
-        const TGAImage& diffusemap_,
-        const TGAImage& normalmap_,
-        const TGAImage& specularmap_
+        const TGAImage& diffusemap_ = TGAImage(),
+        const TGAImage& normalmap_ = TGAImage(),
+        const TGAImage& specularmap_ = TGAImage()
+        // 默认参数
     )
         : mesh(mesh_),
           modelMatrix(modelMatrix_),
@@ -362,6 +380,13 @@ public:
             varying_uv[0] * bc.x +
             varying_uv[1] * bc.y +
             varying_uv[2] * bc.z;
+
+        float alpha = sampleAlpha(bary_uv_coordinate);
+
+        if (alpha < 0.1f) {
+            // Alpha-Testing 丢弃高透明度部分纹理
+            return {true, TGAColor{0, 0, 0, 0}};
+        }
 
         color3f baseColor = sampleDiffuse(bary_uv_coordinate);
         // 从 diffuse map 中获取基础颜色。

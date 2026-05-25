@@ -1,6 +1,7 @@
-*.tga
 CLAUDE.md
 /build
-*.obj
 /.vscode
+/.claude
 README-Archived.md
+framebuffer1.tga
+framebuffer2.tga

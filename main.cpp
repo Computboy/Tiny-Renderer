@@ -15,7 +15,7 @@ int main(int argc, char** argv) {
     z_buffer zbuffer(width, std::vector<float>(height, 1.0f));
     // float精度的深度缓冲区
 
-    mat4f modelMatrix = Translate(0.15f, 0.0f, 0.1f) * RotateY(35.0f) * Scale(0.4f);
+    mat4f modelMatrix = Translate(-0.25f, 0.0f, 0.1f) * RotateY(35.0f) * Scale(0.2f);
     // 顺序很重要：先缩放再旋转，最后平移
     mat4f viewMatrix  = LookAt(CamPos, vec3f(0.0f, 0.0f, 0.0f), vec3f(0.0f, 1.0f, 0.0f));
     mat4f perspectiveMatrix = Perspective(60.0f, (float)width / (float)height, 0.1f, 100.0f);
@@ -31,6 +31,17 @@ int main(int argc, char** argv) {
     Blinn_PhongShader myShader(BackPack, modelMatrix, viewMatrix, perspectiveMatrix, vec3f(1.0f, 1.0f, 1.0f), vec3f(2.0f, -4.0f, 6.0f), CamPos, BackPack_diffuse_tga, BackPack_normal_tga, BackPack_specular_tga);
 
     Draw(BackPack, myShader, framebuf, zbuffer);
+
+    Model OldHouse("media/OldHouse/OldHouse.obj");
+    TGAImage OldHouse_diffuse_tga;
+    OldHouse_diffuse_tga.read_tga_file("media/OldHouse/housediff.tga");
+
+    modelMatrix = Translate(0.55f, -0.3f, 0.1f) * RotateY(-55.0f) * Scale(0.1f);
+
+    Blinn_PhongShader myShader2(OldHouse, modelMatrix, viewMatrix, perspectiveMatrix, vec3f(1.0f, 1.0f, 1.0f), vec3f(2.0f, -4.0f, 6.0f), CamPos, OldHouse_diffuse_tga);
+
+    Draw(OldHouse, myShader2, framebuf, zbuffer);
+
     framebuf.write_tga_file("framebuffer1.tga");
 
     return 0;
