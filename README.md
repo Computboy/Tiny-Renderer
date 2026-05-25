@@ -1,195 +1,379 @@
-# Tiny-Renderer
-不直接调用OpenGL的API，使用纯Cpp语言实现小型CPU图像渲染器
+# Tiny Renderer
 
-原仓库：[tinyrenderer](https://github.com/ssloy/tinyrenderer)
+一个使用 **C++ 手写实现的 CPU 软件光栅渲染器**。
 
-重新编译：
-```bash
-cmake --build build && ./build/MyTinyRenderer
+本项目参考 [tinyrenderer](https://github.com/ssloy/tinyrenderer) 的学习路径，从最基础的像素绘制开始，逐步实现 OBJ 模型加载、三角形光栅化、Z-Buffer、MVP 坐标变换、Shader 抽象、Blinn-Phong 光照、纹理映射与法线贴图。
+
+项目目标不是调用 OpenGL / Vulkan / DirectX 等图形 API 完成渲染，而是手动实现一条接近真实 GPU 工作方式的渲染管线，从底层理解实时渲染的核心机制。
+
+---
+
+## 01｜Project Overview
+
+Tiny Renderer 是一个面向图形学学习与底层渲染原理理解的软光栅项目。
+
+它目前已经实现了一条完整的基础渲染管线：
+
+```text
+OBJ Model
+   ↓
+Vertex Shader
+   ↓
+MVP Transformation
+   ↓
+Perspective Division
+   ↓
+Viewport Mapping
+   ↓
+Triangle Rasterization
+   ↓
+Barycentric Interpolation
+   ↓
+Z-Buffer Test
+   ↓
+Fragment Shader
+   ↓
+TGA Framebuffer Output
 ```
 
-# ConstructionLog-构建日志
+相比直接使用 OpenGL，本项目更关注：
 
-## Day 1：像素绘制与线段光栅化
+- 三维模型数据如何被解析
+- 顶点如何经过坐标变换进入屏幕空间
+- 三角形如何被光栅化成像素
+- 深度测试如何解决遮挡关系
+- 光照与纹理如何在 Fragment 阶段参与计算
+- 法线贴图如何在不增加几何复杂度的情况下增强表面细节
 
-从零搭建渲染器的第一步，是解决"如何将像素写入图像"这一最基础的问题。项目直接复用了 tinyrenderer 中的 [TGAImage](https://haqr.eu/tinyrenderer/#the-starting-point) 类，作为轻量级的图像缓冲区与 `.tga` 格式输出工具——这一阶段的关注点并非图像文件格式本身，而是手动实现像素级的绘制逻辑，为后续渲染管线铺路。
+---
 
-在此基础上，实现了经典的 [Bresenham 线段绘制算法](https://haqr.eu/tinyrenderer/bresenham/)，完成了直线段的光栅化。这是光栅化渲染器的第一个可见成果：无需任何图形 API，仅凭数学推导就能在屏幕上画出一条直线。
+## 02｜Features
 
-## Day 2：OBJ 模型导入与线框绘制
+当前项目支持：
 
-有了线段绘制能力后，下一步是将三维几何数据引入管线。这一阶段手动实现了一个简易的 OBJ 文件解析器，能够读取 `.obj` 格式的模型文件，提取顶点坐标与面索引信息。随后结合透视投影与 Bresenham 线段绘制，将模型的三角面以线框（wireframe）形式渲染到屏幕上，首次完成了从三维数据到二维图像端到端的完整流程。
+- 轻量级 TGA 图像输出
+- Bresenham 线段绘制
+- OBJ 模型解析
+- Wireframe 线框渲染
+- 三角形填充光栅化
+- 背面剔除
+- 重心坐标插值
+- Z-Buffer 深度测试
+- Model / View / Projection / Viewport 坐标变换
+- GPU 风格的 Shader 抽象
+- Blinn-Phong 光照模型
+- Diffuse 纹理映射
+- Normal Mapping 法线贴图
+- TBN 切线空间构建
+- 透视矫正插值
 
-## Day 3：三角形光栅化与背面剔除
+---
 
-有了 Bresenham 线段绘制能力，下一步是将三角形的内部区域进行填充，形成连续的实体表面——这一步即为光栅化（Rasterization）。
+## 03｜Tech Stack
 
-核心思路：对屏幕上的每个三角形，计算其包围盒（Bounding Box），然后遍历包围盒中的每个像素，通过**二维向量叉乘**判断该像素是否在三角形内部。若三个边向量与待测点构成的叉乘结果同号（全≥0 或全≤0），则该像素在三角形内，应当着色；否则在三角形外，跳过。
+| Category | Details |
+| --- | --- |
+| Language | C++17 |
+| Build System | CMake |
+| Rendering Type | CPU Software Rasterization |
+| Image Output | TGA |
+| Model Format | OBJ |
+| Core Concepts | Rasterization, Barycentric Coordinates, Z-Buffer, MVP, Shader Pipeline |
+| Shading | Flat Shading, Blinn-Phong, Texture Mapping, Normal Mapping |
 
-<div align="center">
-  <img src="attachments/光栅化.png" width="400">
-</div>
+---
 
-这种同号判定同时隐含了背面剔除：三角形顶点按不同缠绕顺序（CW 或 CCW）投影到屏幕时，仅朝向相机的一面通过判定，背对相机的一面自然被丢弃。为直观区分不同三角面，Day3 为每个三角形随机分配颜色（使用 `std::mt19937` 随机数引擎）。
+## 04｜Core Rendering Architecture
 
-至此，项目已实现了一条完整的 CPU 光栅化管线：`OBJ 解析 → 顶点坐标 → 视口变换 → 包围盒 → 叉乘判定 → 像素填充 → 图像输出`。
+项目逐步从简单绘制程序重构为类似 GPU 的渲染架构。
 
-## Day 4：重心插值与深度缓冲
+核心接口是 `IShader`：
 
-Day3 的随机颜色填充虽然让每个三角形有了独立的颜色，但不同三角形之间没有前后遮挡关系——后绘制的面总是覆盖先绘制的面。Day4 的核心任务是解决这个问题。
+```cpp
+class IShader {
+public:
+    virtual vec4f vertex(int faceIndex, int vertexIndex) = 0;
+    virtual std::pair<bool, TGAColor> fragment(const vec3f& bary) const = 0;
+    virtual ~IShader() = default;
+};
+```
 
-通过**重心坐标（Barycentric Coordinates）插值**计算三角形内部每个像素的深度值，再引入 **Z-Buffer（深度缓冲）** 实现隐面消除（Hidden Surface Removal）：只有离相机更近的像素才会被绘制，被遮挡的面自然消失。
+其中：
 
-关键技术点：
-- 重心坐标：用子三角形面积比 $(\alpha, \beta, \gamma)$ 定位三角形内部任意点，实现属性的平滑插值
-- 精度修复：将光栅化中的关键类型从 `int/vec2i` 迁移为 `float/vec2f`，确保深度插值精度
-- Z-Buffer：维护像素级深度比较表，`depth < zbuffer[x][y]` 即覆盖绘制
-- 深度视口变换：`(-z + 1.0) * 0.5` 将深度映射到 [0,1]，近小远大，被遮挡像素自然淘汰
+- `vertex()` 对应顶点着色阶段，负责顶点变换与属性传递
+- `fragment()` 对应片段着色阶段，负责逐像素颜色计算
+- `Draw()` 负责组织 Draw Call、透视除法、视口变换与光栅化
+- `Rasterization()` 负责三角形覆盖判断、重心坐标计算、深度测试与片段调用
 
-加入 Z-Buffer 后，模型呈现出完整且前后关系正确的实体表面，为下一步光照计算铺平了道路。
+这种结构使后续添加新的渲染效果时，不需要反复修改核心光栅化逻辑，只需要实现新的 Shader 类即可。
+
+---
+
+## 05｜Technical Highlights
+
+### 5.1 Software Rasterization
+
+项目没有调用图形 API 的三角形绘制能力，而是手动实现 CPU 端三角形光栅化。
+
+基本流程为：
+
+1. 计算三角形在屏幕空间中的包围盒
+2. 遍历包围盒内的每个像素
+3. 判断像素是否落在三角形内部
+4. 计算重心坐标
+5. 插值深度与顶点属性
+6. 进行 Z-Buffer 深度测试
+7. 调用 Fragment Shader 输出颜色
+
+这部分是整个软光栅管线的核心。
+
+---
+
+### 5.2 Barycentric Interpolation
+
+项目使用重心坐标对三角形内部的属性进行插值。
+
+插值对象包括：
+
+- 深度值
+- 世界空间位置
+- 法线
+- UV 坐标
+- 切线方向
+- 纹理采样坐标
+
+通过重心插值，三角形内部不再只是简单的纯色填充，而是可以支持平滑光照、纹理采样和法线贴图。
+
+---
+
+### 5.3 Z-Buffer
+
+早期随机颜色填充阶段，三角形之间没有正确的前后遮挡关系。
+
+引入 Z-Buffer 后，每个像素都会维护当前已经绘制过的最近深度值。只有新的 Fragment 更靠近相机时，才会更新 framebuffer。
+
+这一步实现了基本的隐藏面消除，使模型具备正确的空间遮挡关系。
+
+---
+
+### 5.4 MVP Transformation
+
+项目实现了完整的坐标变换链路：
+
+```text
+Model Space → World Space → View Space → Clip Space → NDC → Screen Space
+```
+
+对应的核心矩阵包括：
+
+| Matrix | Function |
+| --- | --- |
+| Model | 将模型从局部空间放置到世界空间 |
+| View | 将世界空间转换到相机观察空间 |
+| Projection | 将观察空间投影到裁剪空间 |
+| Viewport | 将 NDC 坐标映射到屏幕像素坐标 |
+
+这使项目从简单的 2D 绘制程序，转变为真正的 3D 渲染器。
+
+---
+
+### 5.5 Shader Abstraction
+
+在重构前，顶点变换、颜色计算和绘制逻辑混杂在一起。
+
+引入 Shader 抽象后，项目结构更接近真实 GPU 管线：
+
+```text
+Draw Call
+   ↓
+Vertex Shader
+   ↓
+Rasterization
+   ↓
+Fragment Shader
+   ↓
+Framebuffer
+```
+
+目前已经实现的 Shader 包括：
+
+- `FlatShader`
+- `Blinn_PhongShader`
+- 支持 Diffuse Texture 的 Blinn-Phong Shader
+- 支持 Normal Mapping 的 Blinn-Phong Shader
+
+这种设计让后续扩展 Gouraud Shading、Shadow Mapping、PBR 等效果更自然。
+
+---
+
+### 5.6 Blinn-Phong Lighting
+
+项目实现了基础 Blinn-Phong 光照模型，包括：
+
+- Ambient 环境光
+- Diffuse 漫反射
+- Specular 镜面高光
+
+光照计算在世界空间中完成。Vertex 阶段传出世界空间位置和法线，Fragment 阶段通过重心坐标插值后进行逐像素光照计算。
+
+相比 Flat Shading，Blinn-Phong 能够呈现更加连续、立体的明暗变化。
+
+---
+
+### 5.7 Texture Mapping
+
+在固定 base color 的基础上，项目进一步加入了 Diffuse Texture 采样。
+
+数据流为：
+
+```text
+OBJ vt
+   ↓
+Vertex UV
+   ↓
+Barycentric Interpolation
+   ↓
+Texture Sampling
+   ↓
+Base Color
+   ↓
+Lighting
+```
+
+纹理映射让模型不再依赖单一颜色，而是能够呈现真实材质细节。
+
+---
+
+### 5.8 Normal Mapping
+
+法线贴图用于在不增加模型几何面数的情况下，模拟更加丰富的表面凹凸细节。
+
+项目通过 TBN 切线空间将法线贴图中的局部法线转换到世界空间，再参与 Blinn-Phong 光照计算。
+
+核心流程为：
+
+```text
+Normal Map RGB
+   ↓
+Tangent-space Normal
+   ↓
+TBN Transformation
+   ↓
+World-space Normal
+   ↓
+Blinn-Phong Lighting
+```
+
+法线贴图不会改变模型真实轮廓，但可以显著提升光照细节，使低模表面呈现更接近高模的视觉效果。
+
+---
+
+### 5.9 Perspective-Correct Interpolation
+
+在透视投影后，屏幕空间中的线性插值并不等价于三维空间中的真实线性插值。
+
+因此项目对 UV、法线、世界坐标等属性引入透视矫正插值，避免纹理和法线在透视视角下产生错误变形。
+
+这是从“能跑起来的软光栅”走向“更接近真实渲染管线”的关键一步。
+
+---
+
+## 06｜Development Progress
+
+| Stage | Topic | Main Result |
+| --- | --- | --- |
+| Day 1 | Pixel Drawing & Line Rasterization | 实现 TGA 图像输出与 Bresenham 线段绘制 |
+| Day 2 | OBJ Loading & Wireframe Rendering | 解析 OBJ 顶点和面数据，完成线框模型渲染 |
+| Day 3 | Triangle Rasterization | 实现三角形填充、包围盒遍历与背面剔除 |
+| Day 4 | Barycentric Coordinates & Z-Buffer | 实现重心插值与深度缓冲，解决遮挡关系 |
+| Day 5 | MVP & Viewport Transformation | 完成模型空间到屏幕空间的完整坐标变换 |
+| Day 6 | Shader Refactoring | 引入 `IShader`，重构为类 GPU 渲染管线 |
+| Day 7 | Blinn-Phong Lighting | 实现环境光、漫反射和镜面高光 |
+| Day 8 | Texture Mapping | 支持 Diffuse 纹理采样与材质颜色 |
+| Day 9 | Normal Mapping | 实现 TBN 切线空间与法线贴图光照细节 |
+
+---
+
+## 07｜Gallery
+
+### Rasterization & Z-Buffer
 
 <div align="center">
   <img src="assets/1_4.png" width="520">
 </div>
 
-## Day 5：坐标变换管线（MVP + Viewport）
-
-Day5 完成了渲染器最关键的基础设施——**从模型空间到屏幕空间的完整坐标变换管线**。在此之前，视口变换是手写的简单线性映射，没有相机、没有透视、没有世界空间的概念。Day5 通过 4×4 齐次矩阵实现了 GPU 顶点着色器的核心功能。
-
-**四种变换矩阵**：
-
-| 矩阵 | 输入空间 → 输出空间 | 核心操作 |
-| ---- | ------------------ | -------- |
-| **Model** | 局部 → 世界 | `Rotate` × `Scale` × `Translate`：将物体放置到场景中 |
-| **View** | 世界 → 观察 | 平移摄像机到原点 + 旋转对齐坐标轴（`LookAt`） |
-| **Perspective** | 观察 → 裁剪 | 视锥体挤压为长方体 + 正交投影到 NDC |
-| **Viewport** | NDC → 屏幕 | 将 $[-1,1]^3$ 映射到像素坐标 + 深度缓冲范围 |
-
-**关键技术点**：
-
-- **齐次坐标**：3D 点 $(x,y,z)$ 扩展为 $(x,y,z,1)$，使得**平移可以用矩阵乘法表达**——这是 4×4 矩阵存在的根本原因
-- **旋转矩阵的构造原理**：矩阵的三个列向量分别是被旋转后的标准基向量 $\hat{i}, \hat{j}, \hat{k}$ 的新坐标
-- **LookAt 矩阵**：本质是基变换——先将摄像机平移到原点，再用摄像机局部基向量的转置矩阵将世界坐标投影到摄像机坐标系
-- **透视投影 = 挤压 + 正交**： $M_{\text{Persp}\to\text{Ortho}}$ 将视锥体挤压成长方体（将 $-z$ 存入 $w$），随后透视除法（除以 $w$）自动实现近大远小； $M_{\text{Ortho}}$ 将长方体缩放到 $[-1,1]^3$ 的 NDC
-- **裁剪空间与 NDC**：经过 MVP 后顶点处于「裁剪空间」，除以 $w$ 后得到 NDC——所有可见点的坐标必然在 $[-1,1]^3$ 内，因为矩阵系数正是为此设计的
-- **变换与渲染解耦**：顶点变换从 `DrawFillFrame` 剥离到 `main.cpp`，渲染函数只接收屏幕空间坐标
-
-**变换管线代码**：
-
-```cpp
-for (auto& ver : vertices) {
-    vec4f clip = perspective * view * model * vec4f(ver.x, ver.y, ver.z, 1.0f);
-    vec3f ndc  = clip.to_vec3();   // 透视除法：除以 w
-    ver        = TransformPoint(viewport, ndc);
-}
-```
+### MVP Transformation
 
 <div align="center">
   <img src="assets/1_5.png" width="520">
 </div>
 
-## Day 6：Shader 抽象与渲染管线重构
-
-Day5 虽然实现了完整的 MVP 变换管线，但 `main.cpp` 中混杂了大量顶点变换逻辑，渲染函数 `DrawFillFrame` 和 `Rasterization` 的职责边界模糊。Day6 的目标不是增加新渲染特性，而是**重构工程结构**，使渲染器架构更接近真实 GPU 的「Draw Call → Vertex Shader → Rasterization → Fragment Shader」模型。
-
-**新增 `IShader` 抽象接口**（`shader.h`）：
-- `vertex(faceIndex, vertexIndex)` — 顶点着色阶段，输出裁剪空间坐标
-- `fragment(bary)` — 片段着色阶段，返回 `pair<discard, color>`，支持像素丢弃
-
-**`FlatShader` 具体实现**：将 Day3–Day5 的随机颜色填充逻辑封装进 Shader——`vertex()` 执行 MVP 变换并按面分配随机颜色，`fragment()` 直接返回该颜色。
-
-**核心重构**：
-- `DrawFillFrame` → `Draw`：内部调用 `shader.vertex()` 获取裁剪坐标，统一执行透视除法 + 视口变换，承担 Draw Call 的角色
-- `Rasterization` 不再接受固定颜色，改由 `shader.fragment(bary)` 按像素获取颜色
-- `main.cpp` 删除手动顶点变换循环，改为「创建 Shader → 调用 Draw」的简洁模式
-- `Model::vert(faceIndex, vertexIndex)` 新增便捷方法，封装面索引到顶点坐标的查询
-
-**架构收益**：后续要添加纹理映射、Gouraud/Phong 光照等新着色效果，只需编写新的 `IShader` 子类，无需再触碰 `Draw()` 或 `Rasterization()` 的核心逻辑。
-
-## Day 7：Blinn-Phong 光照与着色
-
-Day6 完成了 Shader 抽象，Day7 立刻验证了这一架构的扩展能力——在不修改 `Draw()` 和 `Rasterization()` 的前提下，仅通过新增一个 `Blinn_PhongShader` 类，就为渲染器加入了完整的光照计算。
-
-**Blinn-Phong 光照模型**将物体表面接收的光分解为三个分量：
-
-| 分量 | 计算方法 | 视觉作用 |
-| ---- | -------- | -------- |
-| **环境光** | $\text{baseColor} \times k_a$ | 提供均匀的基底亮度，防止暗面全黑 |
-| **漫反射** | $\text{baseColor} \odot \text{lightColor} \times \max(0, \vec{N} \cdot \vec{L})$ | Lambert 余弦定律，表面亮度随光照角度变化 |
-| **镜面反射** | $\text{lightColor} \times k_s \times \max(0, \vec{N} \cdot \vec{H})^{n_s}$ | 高光斑点，使用 Blinn 半程向量 $\vec{H} = \text{normalize}(\vec{L} + \vec{V})$ 替代 Phong 的反射向量 |
-
-**关键技术点**：
-
-- **法线读取**：扩展 OBJ 解析器支持 `vn` 行，新增 `normals_` 数组和 `normal(faceIndex, vertexIndex)` 便捷方法
-- **世界空间光照**：`vertex()` 阶段将顶点位置变换到世界空间并存入 `varying_worldPos`，法线存入 `varying_normal`；`fragment()` 阶段在插值后的世界坐标上进行光照计算——光源和相机位置直接在世界空间指定，不与 MVP 管线耦合
-- **重心坐标插值**：`fragment()` 接收的重心坐标 `(α, β, γ)` 用于对三个顶点的世界位置和法线进行平滑插值，使三角形内部呈现连续的光照明暗过渡
-- **半程向量优化**：Blinn 的 $\vec{N} \cdot \vec{H}$ 比 Phong 的 $\vec{R} \cdot \vec{V}$ 计算更轻量，且当光源和相机较远时 $\vec{H}$ 近似常量
-- **逐分量 clamp**：最终颜色各通道 clamp 到 $[0,1]$，防止颜色溢出
-
-**架构验证**：Day6 的 Shader 抽象经受住了第一次考验——`Blinn_PhongShader` 只需要实现 `vertex()` 和 `fragment()` 两个虚函数，`main.cpp` 只需将 `FlatShader` 替换为 `Blinn_PhongShader`，核心渲染管线零改动。
+### Blinn-Phong Lighting
 
 <div align="center">
   <img src="assets/1_7.png" width="520">
 </div>
 
-## Day 8：纹理映射与着色器函数封装
-
-Day7 实现了 Blinn-Phong 光照，但模型的基底颜色是固定的纯白色。Day8 引入**纹理映射（Texture Mapping）**，使物体表面从纹理贴图中采样颜色作为 baseColor，与光照结合后呈现出丰富的材质细节。
-
-**纹理映射数据流**：OBJ 的 `vt` 行 → 顶点 UV 坐标 → 重心坐标插值 → 纹理采样 → `baseColor` → Blinn-Phong 光照计算 → 像素输出。光栅化管线本身（三角形覆盖判定、重心坐标、Z-Buffer）完全不需要改动——变化全部集中在 Shader 内部。
-
-**OBJ 纹理坐标解析**：
-- 扩展 `tinyobjloader` 解析 `vt` 行，新增 `uvs_` 数组和 `uv(faceIndex, uvIndex)` 便捷方法
-- 新增 `uv2f` 类型别名（`geometry.h`），语义上区分纹理坐标与一般二维向量
-- 至此 OBJ 的三类顶点属性（位置 `v`、纹理 `vt`、法线 `vn`）全部拥有对称的访问接口：`vert()`、`uv()`、`normal()`
-
-**着色器函数封装**：将 `Blinn_PhongShader` 中的 fragment 逻辑拆分为三个独立方法：
-- `sampleDiffuse(uv)` — 从 diffuse 纹理中采样，将 TGAColor 的 BGRA 字节转换为 $[0,1]$ 范围的 `color3f`
-- `blinnPhong(baseColor, worldPos, normal)` — 计算环境光 + 漫反射 + 镜面反射，独立于颜色来源
-- `toTGAColor(result)` — 将 `color3f` 转换回 BGRA 字节顺序的 `TGAColor`
-
-**Draw 接口简化**：移除冗余的 `width`/`height` 参数，改为从 `image.width()` / `image.height()` 获取。
-
-**纹理图类型切换**：纹理从常见格式（`.jpg` / `.png`）通过 ImageMagick 转换为非压缩 TGA 后加载。
+### Texture Mapping
 
 <div align="center">
   <img src="assets/1_8.png" width="520">
 </div>
 
-## Day 9：法线贴图与 TBN 切线空间
-
-Day8 的 diffuse 纹理为模型赋予了颜色细节，但光照计算的法线仍然是顶点法线的平滑插值——低模的三角形面数有限，无法表达表面的细微凹凸。Day9 引入**法线贴图（Normal Mapping）**，在不增加几何面数的前提下，通过纹理中编码的逐像素法线扰动，使低模在光照下呈现出高模才具备的表面细节。
-
-**法线贴图的能力边界**：能伪造光照下的凹凸感，但不能改变真实的几何轮廓——侧面边缘仍然是低模的直线。
-
-**切线空间（Tangent Space）**是法线贴图的核心坐标系——一个贴合三角形表面的局部坐标系。其三个轴分别为：
-- **T（Tangent）**：沿 UV 的 $u$ 方向
-- **B（Bitangent）**：沿 UV 的 $v$ 方向  
-- **N（Normal）**：表面几何法线方向
-
-法线贴图中的蓝紫色（RGB ≈ 128, 128, 255）正是无扰动法线 $(0, 0, 1)$ 映射到 $[0, 255]$ 存储空间的结果。
-
-**TBN 矩阵**将采样到的切线空间法线变换到世界空间参与光照计算。T 和 B 的方向从三角形的世界空间边向量与 UV 差分反解得到：
-
-$$\vec{T} = \frac{\vec{E}_1 \Delta v_2 - \vec{E}_2 \Delta v_1}{\det}, \quad \vec{B} = \frac{\vec{E}_2 \Delta u_1 - \vec{E}_1 \Delta u_2}{\det}$$
-
-其中 $\vec{E}_1, \vec{E}_2$ 为世界空间三角形边，$\Delta u_i, \Delta v_i$ 为对应 UV 差分，$\det = \Delta u_1 \Delta v_2 - \Delta u_2 \Delta v_1$。
-
-**工程优化 — TBN 正交化**：从边和 UV 算出的 T/B 与插值后的 N 可能不正交。工程方案是只计算 T，在 fragment 阶段通过 Gram-Schmidt 将其与插值 N 正交化，再用叉乘重建 B（附带 handedness 符号校正）。这样得到的 TBN 矩阵是正交的，可直接用转置进行逆变换：
-
-```cpp
-T = (T - N * dot(T, N)).normalize();
-B = cross(N, T).normalize() * faceTangentSign;
-finalNormal = T * nx + B * ny + N * nz;
-```
-
-**法线采样**：纹素从 $[0, 255]$ 字节映射到 $[-1, 1]$ 浮点向量（`n * 2.0 - 1.0`），经 TBN 变换后送入 Blinn-Phong 光照。
-
-**透视矫正插值**：修复了透视投影下属性插值的理论缺陷——屏幕空间中线性的不是属性 $a$，而是 $a/w$ 和 $1/w$。通过先插值 $a/w$ 再除以 $1/w$，得到正确的逐像素属性值：
-
-$$a_{\text{corrected}} = \frac{\sum \alpha_i \cdot a_i / w_i}{\sum \alpha_i / w_i}$$
+### Normal Mapping
 
 <div align="center">
   <img src="assets/1_9.png" width="520">
 </div>
 
+---
+
+## 08｜Build & Run
+
+### Build
+
+```bash
+cmake --build build
+```
+
+### Run
+
+```bash
+./build/MyTinyRenderer
+```
+
+或者直接执行：
+
+```bash
+cmake --build build && ./build/MyTinyRenderer
+```
+
+---
+
+## 09｜Project Structure
+
+```text
+Tiny-Renderer/
+├── CMakeLists.txt
+├── ConstructionLog.md
+├── README.md
+├── assets
+├── attachments
+├── geometry.h
+├── main.cpp
+├── rendering.cpp
+├── rendering.h
+├── shader.h
+├── tgaimage.cpp
+├── tgaimage.h
+├── tinyobjloader.cpp
+├── tinyobjloader.h
+├── transformation.cpp
+└── transformation.h
+```
+
+## 10｜References
+
+- [tinyrenderer](https://github.com/ssloy/tinyrenderer)
+- [tinyrenderer tutorial](https://haqr.eu/tinyrenderer/)
+- [LearnOpenGL](https://learnopengl.com/)
