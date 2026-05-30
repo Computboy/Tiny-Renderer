@@ -302,6 +302,10 @@ Camera MVP  Light MVP
 
 同时，光照计算引入了随距离的二次衰减（Attenuation），使远离光源的表面自然变暗。Shadow Factor 只削弱漫反射与镜面反射分量，环境光不受影响——保证阴影区域不会完全漆黑。
 
+<div align="center">
+  <img src="attachments/阴影渲染前后对比.png" width="720">
+</div>
+
 ---
 
 ## 06｜Development Progress
@@ -351,6 +355,12 @@ Camera MVP  Light MVP
 
 <div align="center">
   <img src="assets/1_9.png" width="520">
+</div>
+
+### Shadow Mapping
+
+<div align="center">
+  <img src="assets/1_10.png" width="520">
 </div>
 
 ---
