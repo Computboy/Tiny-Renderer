@@ -36,15 +36,19 @@ int main(int argc, char** argv) {
     BackPack_normal_tga.read_tga_file("media/Backpack/backpacknormal_tga.tga");
     BackPack_specular_tga.read_tga_file("media/Backpack/backpackspecular_tga.tga");
 
-    Blinn_PhongShader myShader(BackPack, modelMatrix, viewMatrix, perspectiveMatrix, LightColor, EasyPointLightPos, CamPos, BackPack_diffuse_tga, BackPack_normal_tga, BackPack_specular_tga);
+    ShadowDepthCalcShader simpleshadow(BackPack, modelMatrix, lightviewMatrix, lightperspectiveMatrix);
 
-    Draw(BackPack, myShader, framebuf, zbuffer);
+    Shadow_Blinn_PhongShader shadowShader(BackPack, modelMatrix, viewMatrix, perspectiveMatrix, LightColor, EasyPointLightPos, CamPos, light_zbuffer, lightperspectiveMatrix * lightviewMatrix, BackPack_diffuse_tga, BackPack_normal_tga, BackPack_specular_tga);
+
+    Draw(BackPack, simpleshadow, framebuf, light_zbuffer);
+    Draw(BackPack, shadowShader, framebuf, zbuffer);
+
 
     Model Plane("media/Plane/plane.obj");
     TGAImage PlaneDiffuse(1, 1, TGAImage::RGB, TGAColor{30, 55, 120, 255});
     modelMatrix = Translate(0.0f, -1.0f, 0.0f) * RotateY(45.0f) * Scale(1.3f);
 
-    Blinn_PhongShader myShader2(Plane, modelMatrix, viewMatrix, perspectiveMatrix, LightColor, EasyPointLightPos, CamPos, PlaneDiffuse);
+    Shadow_Blinn_PhongShader myShader2(Plane, modelMatrix, viewMatrix, perspectiveMatrix, LightColor, EasyPointLightPos, CamPos, light_zbuffer, lightperspectiveMatrix * lightviewMatrix, PlaneDiffuse);
 
     Draw(Plane, myShader2, framebuf, zbuffer);
 

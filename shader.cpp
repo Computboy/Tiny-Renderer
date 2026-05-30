@@ -389,8 +389,6 @@ Shadow_Blinn_PhongShader::Shadow_Blinn_PhongShader(
     const vec3f& cameraPos_,
     const z_buffer& shadowBuffer_,
     const mat4f& lightMVP_,
-    int shadowWidth_,
-    int shadowHeight_,
     const TGAImage& diffusemap_,
     const TGAImage& normalmap_,
     const TGAImage& specularmap_
@@ -409,10 +407,10 @@ Shadow_Blinn_PhongShader::Shadow_Blinn_PhongShader(
       ),
       shadowBuffer(shadowBuffer_),
       lightMVP(lightMVP_),
-      shadowWidth(shadowWidth_),
-      shadowHeight(shadowHeight_),
       bias(0.005f)
 {
+    shadowHeight = shadowBuffer.size();
+    shadowWidth = shadowHeight > 0 ? shadowBuffer[0].size() : 0;
     Lightviewport = Viewport(shadowWidth, shadowHeight);
 }
 
