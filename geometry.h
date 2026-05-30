@@ -12,6 +12,7 @@ struct vec3 {
     T x, y, z;  // 向量的x, y, z分量
 
     vec3() : x(0), y(0), z(0) {}
+    vec3(T x) : x(x), y(x), z(x) {}
     vec3(T x, T y, T z) : x(x), y(y), z(z) {}
 
     T& operator[](int i) {
@@ -77,6 +78,7 @@ struct vec4 {
 
     // 构造函数
     vec4() : x(0), y(0), z(0), w(0) {}
+    vec4(T x) : x(x), y(x), z(x), w(x) {}
     vec4(T x, T y, T z, T w) : x(x), y(y), z(z), w(w) {}
 
     // 下标访问（支持读写）
@@ -153,6 +155,7 @@ struct vec2 {
     T x, y;
 
     vec2() : x(0), y(0) {}
+    vec2(T x) : x(x), y(x) {}
     vec2(T x, T y) : x(x), y(y) {}
 
     T& operator[](int i) {
