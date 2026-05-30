@@ -2625,27 +2625,260 @@ Day9 完成后，渲染器具备了法线贴图能力——低面数模型在光
 
 > Day9 涉及较多数学推导，完整的 TBN 推导细节见 [attachments/手推TBN矩阵.pdf](attachments/手推TBN矩阵.pdf)。
 
-## Day10 - 阴影映射
+## Day10 - 阴影映射与光照衰减
 
-> Day9.5 - 加了一个镜面光计算逻辑
+> 注：Day9 到 Day10 之间还加入了两个小改进——Alpha-Testing 丢弃透明片段（`sampleAlpha()` + discard 逻辑），以及 specular map 采样（`sampleSpecular()` 取代固定镜面反射强度），使渲染器具备了处理透明纹理和材质高光变化的能力。
 
-阴影映射与我们之前的渲染流程不同，它利用深度缓冲区执行了两次Pass：
+<div align="center">
+  <img src="attachments/SpecularMap转为黑白图.png" width="520">
+</div>
 
-- 第一遍从光源的角度：场景从光源的视角进行渲染，深度缓冲区储存距离光源表面最近的像素位置；
-- 第二遍从正常相机的角度：场景从观察者的位置正常渲染，但对于每个片段我们执行一个额外的检查：我们测试该片段是否对光源可见或被阴影遮挡。
+Day9 引入的法线贴图让单个三角形内部拥有了丰富的明暗细节，但渲染画面仍然存在一个明显的视觉缺陷——**没有阴影**。物体之间的空间遮挡关系完全依赖 Z-Buffer 解决，但光源能否照到某个表面、哪个物体挡住了光源——这些信息在 Day9 的管线中完全缺失。Day10 的目标是引入 **阴影映射（Shadow Mapping）**，通过两张深度缓冲区的配合，让场景中出现真实的投影遮挡效果。
 
-<span style="
-  background: linear-gradient(135deg, orange, purple);
-  -webkit-background-clip: text;
-  -webkit-text-fill-color: transparent;
-  font-weight: bold;
-">
-其实没有必要算逆矩阵：更推荐的做法是——获取片段在WorldPosition，也就是世界坐标系下的坐标，并使用两套矩阵基底变换流程分别求取在摄像机视角下的屏幕空间坐标和光源视角下的屏幕空间坐标
-</span>
+与此同时，Day10 也从固定镜面反射强度升级为 specular map 采样，并通过光照衰减（Attenuation）模拟光源随距离的自然衰减。
 
-先使用**简化点光源**计算模型：计算1张shadow map即可；后续再拓展至Cube map
+---
 
-临时debug
+### 1. Shadow Mapping 的核心思想
+
+阴影映射的本质是回答一个问题：
+
+> 对于场景中的某个点，光源能否「看到」它？
+
+如果光源看不到该点，则该点处于阴影中——其漫反射和镜面反射分量应当被削弱或去除。Shadow Mapping 通过两次渲染 Pass 来回答这个问题：
+
+| Pass | 相机位置 | 目的 |
+| ---- | -------- | ---- |
+| **Shadow Pass** | 光源位置 | 计算光源视角下的深度缓冲（Shadow Map） |
+| **Camera Pass** | 观察者位置 | 正常渲染，对每个片段查询 Shadow Map 判定是否在阴影中 |
+
+Shadow Pass 本质上不进行任何颜色计算——它只生成一张深度图（Z-Buffer），记录从光源位置看出去，每个像素距离光源最近的面有多远。
+
+Camera Pass 在正常渲染每个片段时，额外执行一次「光源可见性测试」：将该片段的世界坐标变换到光源的屏幕空间，取出 Shadow Map 中对应位置的深度值，与该片段到光源的实际距离做比较。如果 Shadow Map 中记录了一个更近的深度，说明有某个物体挡在了该片段和光源之间——该片段处于阴影中。
+
+---
+
+### 2. 两套坐标变换：世界空间是关键
+
+Shadow Mapping 涉及两套完全独立的 MVP 管线：
+
+```text
+            世界空间 position
+                 │
+      ┌──────────┴──────────┐
+      │                     │
+      ▼                     ▼
+ Camera MVP            Light MVP
+      │                     │
+      ▼                     ▼
+ 屏幕坐标 (渲染)       屏幕坐标 (查 Shadow Map)
+```
+
+这就是 Day10 的核心设计决策：**不计算逆矩阵，而是直接用世界空间坐标分别走两条正向变换链**。具体做法是：
+
+1. 在 fragment 阶段，通过重心坐标插值得到当前像素的世界空间坐标 `frag_WorldPos`；
+2. 用 `LightMVP = lightProjection × lightView` 将 `frag_WorldPos` 变换到光源的裁剪空间；
+3. 经透视除法（`to_vec3()`）和视口变换，得到光源屏幕空间下的坐标 `(sx, sy, depth)`；
+4. 在 Shadow Map 中查询 `(sx, sy)` 位置存储的最近深度 `closestDepth`；
+5. 比较 `depth` 与 `closestDepth`：若 `closestDepth < depth - bias`，则该片段处于阴影中。
+
+> 注意：当前 Z-Buffer 约定的深度是「近小远大」（depth 0 = near, depth 1 = far），因此 `closestDepth < depth - bias` 意味着 Shadow Map 中记录了一个更近的面，当前片段被遮挡。
+
+---
+
+### 3. ShadowDepthCalcShader：光源视角的深度采集
+
+Shadow Pass 使用一个独立的极简着色器 `ShadowDepthCalcShader`（位于 `shader.h` / `shader.cpp`）：
+
+```cpp
+class ShadowDepthCalcShader : public IShader {
+private:
+    const Model& mesh;
+    mat4f modelMatrix, viewMatrix, projectionMatrix;
+    // ...
+};
+```
+
+**`vertex()` 实现**：
+
+```cpp
+vec4f vertex(int faceIndex, int vertexIndex) override {
+    vec3f v = mesh.vert(faceIndex, vertexIndex);
+    return projectionMatrix * viewMatrix * modelMatrix * vec4f(v.x, v.y, v.z, 1.0f);
+}
+```
+
+仅执行 MVP 变换，不传递任何 varying 变量——因为 Shadow Pass 的唯一目的是把深度写入 Z-Buffer。
+
+**`fragment()` 实现**：
+
+```cpp
+std::pair<bool, TGAColor> fragment(const vec3f& bar) const override {
+    return {false, TGAColor{255, 255, 255, 255}};
+}
+```
+
+Fragment 阶段填充纯白色即可——真正的「有效输出」是 `Draw()` 内部自动写入 Z-Buffer 的深度值。这里返回白色是为了满足 `IShader` 纯虚接口的要求。
+
+> **关键要点**：Shadow Pass 使用 `Draw()` 函数（与 Camera Pass 完全相同的绘制函数），不接受 shading 类型的 fragment。`Draw()` 内部自动执行透视除法、视口变换、光栅化与深度测试——这些固定功能管线在两个 Pass 中完全一致。区别仅在于：Shadow Pass 传入的是光源视角的 MVP 矩阵，绘入的是 `light_zbuffer`。
+
+---
+
+### 4. Shadow_Blinn_PhongShader：带阴影查询的 Blinn-Phong
+
+Camera Pass 使用 `Shadow_Blinn_PhongShader`——继承自 `Blinn_PhongShader`，在光照计算中增加阴影判定。
+
+#### 4.1 新增成员变量
+
+```cpp
+class Shadow_Blinn_PhongShader : public Blinn_PhongShader {
+private:
+    const z_buffer& shadowBuffer;   // Shadow Pass 得到的深度缓冲
+    mat4f lightMVP;                 // LightView × LightProjection
+    mat4f Lightviewport;            // 光源视角的视口变换矩阵
+    float bias;                     // 阴影偏移量，缓解 shadow acne
+    // ...
+};
+```
+
+构造函数中完成初始化：
+
+```cpp
+Shadow_Blinn_PhongShader::Shadow_Blinn_PhongShader(/* ... */)
+    : Blinn_PhongShader(/* 基类参数 ... */),
+      shadowBuffer(shadowBuffer_),
+      lightMVP(lightMVP_),
+      bias(0.0015f)
+{
+    shadowWidth  = shadowBuffer.size();
+    shadowHeight = shadowBuffer[0].size();
+    Lightviewport = Viewport(shadowWidth, shadowHeight);
+}
+```
+
+#### 4.2 阴影判定核心逻辑
+
+新增的 `shadow_BlinnPhong()` 方法在 `blinnPhong()` 的基础上引入了 Shadow Factor：
+
+```cpp
+float ShadowFactor = 1.0f;
+
+// Step 1: 世界空间坐标 → 光源裁剪空间 → 光源屏幕空间
+vec3f lightDirectionPos = (lightMVP * vec4f(frag_WorldPos, 1.0f)).to_vec3();
+vec3f lightScreenPos   = TransformPoint(Lightviewport, lightDirectionPos);
+
+int   sx           = static_cast<int>(lightScreenPos.x);
+int   sy           = static_cast<int>(lightScreenPos.y);
+float currentDepth = lightScreenPos.z;
+
+// Step 2: 查 Shadow Map
+if (sx >= 0 && sx < shadowWidth && sy >= 0 && sy < shadowHeight) {
+    float closestDepth = shadowBuffer[sx][sy];
+    if (closestDepth < 1.0f && closestDepth < currentDepth - bias) {
+        ShadowFactor = 0.3f;   // 阴影区域保留 30% 亮度
+    }
+}
+```
+
+最终光照公式变为：
+
+```cpp
+vec3f result = ambient + (diffuse + specular) * attenuation * ShadowFactor;
+```
+
+环境光不受阴影影响（保证了阴影区域不会完全漆黑），漫反射和镜面反射被 `ShadowFactor = 0.3` 削弱——阴影区域仅保留环境光 + 30% 的直射光。
+
+#### 4.3 Bias 处理：缓解 Shadow Acne
+
+`bias = 0.0015f` 是一个关键的工程参数。如果直接比较 `closestDepth < currentDepth`，会因为浮点精度问题导致表面自身的某些像素「错误地认为自己被自己遮挡」——产生条纹状的 **阴影痤疮（Shadow Acne）**。
+
+`bias` 在比较時将深度阈值向上偏移了一小段距离，使表面自身不会错误地落入阴影判定。`bias` 的值需要根据场景尺度手动调节——太大则阴影与遮挡体之间出现可见缝隙（Peter Panning），太小则痤疮复发。
+
+---
+
+### 5. 光照衰减（Attenuation）
+
+Day7–Day9 的点光源光照不随距离衰减——远离光源的平面和靠近光源的平面一样亮。Day10 在 Blinn-Phong 计算中加入了 **二次衰减模型**：
+
+```cpp
+float distance = (lightPosition - frag_WorldPos).norm();
+
+float constant  = 1.0f;
+float linear    = 0.02f;
+float quadratic = 0.002f;
+
+float attenuation = 1.0f / (constant + linear * distance + quadratic * distance * distance);
+```
+
+漫反射和镜面反射分量乘以 `attenuation`——距离越远，光照越暗。环境光不参与衰减，确保极远处的表面也不会完全消失。
+
+| 参数 | 含义 | 取值 |
+| ---- | ---- | ---- |
+| `constant` | 常数衰减项，防止近距离数值爆炸 | 1.0 |
+| `linear` | 线性衰减，模拟中等距离的均匀衰减 | 0.02 |
+| `quadratic` | 二次衰减，远距离快速下降 | 0.002 |
+
+---
+
+### 6. `main.cpp`：两 Pass 组织架构
+
+Day10 的 `main.cpp` 清晰地划分为两个阶段：
+
+**Shadow Pass**：
+
+```cpp
+// 光源视角的 MVP 矩阵
+mat4f lightviewMatrix       = LookAt(EasyPointLightPos, CoordinateOrigin, vec3f(0.0f, 0.0f, 1.0f));
+mat4f lightperspectiveMatrix = Perspective(90.0f, 1.0f, 0.1f, 20.0f);
+mat4f lightMVP               = lightperspectiveMatrix * lightviewMatrix;
+
+z_buffer light_zbuffer(width, std::vector<float>(height, 1.0f));
+
+// 将背包和地面平面分别从光源视角渲染，写入 light_zbuffer
+ShadowDepthCalcShader backpackShadow(BackPack, backpackModelMatrix,
+    lightviewMatrix, lightperspectiveMatrix);
+Draw(BackPack, backpackShadow, shadowDebug, light_zbuffer);
+
+ShadowDepthCalcShader planeShadow(Plane, planeModelMatrix,
+    lightviewMatrix, lightperspectiveMatrix);
+Draw(Plane, planeShadow, shadowDebug, light_zbuffer);
+```
+
+**Camera Pass**：
+
+```cpp
+// 正常相机视角渲染，shader 内部会查询 light_zbuffer 判断阴影
+Shadow_Blinn_PhongShader backpackShader(
+    BackPack, backpackModelMatrix, viewMatrix, perspectiveMatrix,
+    LightColor, EasyPointLightPos, CamPos,
+    light_zbuffer, lightMVP,
+    BackPack_diffuse_tga, BackPack_normal_tga, BackPack_specular_tga
+);
+Draw(BackPack, backpackShader, framebuf, zbuffer);
+
+Shadow_Blinn_PhongShader planeShader(
+    Plane, planeModelMatrix, viewMatrix, perspectiveMatrix,
+    LightColor, EasyPointLightPos, CamPos,
+    light_zbuffer, lightMVP,
+    PlaneDiffuse
+);
+Draw(Plane, planeShader, framebuf, zbuffer);
+```
+
+场景中加入了两个模型：
+- **Backpack**——带完整的 diffuse / normal / specular 纹理；
+- **Plane**（地面平面）——1×1 纯色纹理的平面，用于承接阴影投影。
+
+点光源 LookAt 的 `up` 方向使用 `vec3f(0.0f, 0.0f, 1.0f)`（不同于相机 LookAt 使用的 $+Y$），这是因为点光源高悬于物体上方，以 $+Z$ 为上方向可以避免 LookAt 的视线与 up 向量平行（否则会导致叉积退化）。
+
+---
+
+### 7. 调试技巧
+
+#### 7.1 阴影区域可视化
+
+在 fragment 中临时输出纯色标记阴影区域，是验证 Shadow Map 是否正确的最快手段：
+
 ```cpp
 if (ShadowFactor < 1.0f) {
     return color3f(1.0f, 0.0f, 0.0f);   // 阴影：红色
@@ -2653,3 +2886,100 @@ if (ShadowFactor < 1.0f) {
     return color3f(1.0f, 1.0f, 1.0f);   // 非阴影：白色
 }
 ```
+
+如果看到合理的红色区域（地面上背包遮挡的位置），说明 Shadow Map 的查询和坐标变换链路是正确的；如果全红或全白，则需要分别排查 Shadow Pass 的深度写入或 Camera Pass 的坐标转换。
+
+#### 7.2 Shadow Map 可视化
+
+将 `light_zbuffer` 中的深度值映射为灰度图像输出：
+
+```cpp
+TGAImage shadowDepthVis(width, height, TGAImage::RGB);
+
+float minDepth = 1.0f, maxDepth = 0.0f;
+for (int x = 0; x < width; x++)
+    for (int y = 0; y < height; y++)
+        if (light_zbuffer[x][y] < 1.0f) {
+            minDepth = std::min(minDepth, light_zbuffer[x][y]);
+            maxDepth = std::max(maxDepth, light_zbuffer[x][y]);
+        }
+
+for (int x = 0; x < width; x++)
+    for (int y = 0; y < height; y++) {
+        float d = light_zbuffer[x][y];
+        if (d >= 1.0f) {
+            shadowDepthVis.set(x, y, TGAColor{0, 0, 0, 255});
+        } else {
+            float t = 1.0f - (d - minDepth) / (maxDepth - minDepth + 1e-6f);
+            unsigned char c = static_cast<unsigned char>(t * 255.0f);
+            shadowDepthVis.set(x, y, TGAColor{c, c, c, 255});
+        }
+    }
+
+shadowDepthVis.write_tga_file("shadow_depth_vis.tga");
+```
+
+近处（深度值小）→ 白色，远处（深度值大）→ 黑色，未写入区域（深度 = 1.0）→ 纯黑。
+
+#### 7.3 Shadow Pass 的帧缓冲可视化
+
+给 `Draw()` 的第三个参数传入一个真实的 `TGAImage` 而非 dummy buffer，输出 `shadow_pass_debug.tga` 可以查看 Shadow Pass 中模型在光源视角下的投影形态——有助于判断光源位置和朝向是否正确。
+
+---
+
+### 8. 渲染管线总览
+
+```text
+┌─────────────────────────────────────────────────────────────┐
+│ PASS 1 — Shadow Pass（光源视角）                              │
+│                                                             │
+│ OBJ → [Model] → [Light View] → [Light Proj] → [÷w] → NDC   │
+│     → [Viewport] → 光栅化 → Z-Buffer 写入 → light_zbuffer   │
+└─────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────┐
+│ PASS 2 — Camera Pass（观察者视角）                            │
+│                                                             │
+│ OBJ → [Model] → [View] → [Proj] → [÷w] → NDC → [Viewport]  │
+│     → 光栅化 → 重心插值 (worldPos + normal + uv)             │
+│     → 纹理采样 (diffuse + normal + specular)                │
+│     → TBN 正交化 + 法线扰动                                  │
+│     → ⭐ 查询 light_zbuffer ← frag_WorldPos → lightMVP      │
+│     → Shadow Factor 判定                                    │
+│     → Blinn-Phong (ambient + (diffuse+spec)*atten*shadow)   │
+│     → Z-Buffer 测试 → 像素输出                               │
+└─────────────────────────────────────────────────────────────┘
+```
+
+<div align="center">
+  <img src="assets/1_10.png" width="520">
+</div>
+
+---
+
+### 9. 新增 / 变更文件清单
+
+| 文件 | 变更 |
+| ---- | ---- |
+| `shader.h` | **新增** `ShadowDepthCalcShader` 类（光源视角 MVP 着色器）；**新增** `Shadow_Blinn_PhongShader` 类（继承 `Blinn_PhongShader`，新增 `shadowBuffer`、`lightMVP`、`bias` 等成员，重写光照计算为 `shadow_BlinnPhong()`） |
+| `shader.cpp` | **新增** `ShadowDepthCalcShader` 全方法实现；**新增** `Shadow_Blinn_PhongShader` 全方法实现（含阴影判定 + 衰减 + 光照计算）；`Blinn_PhongShader::blinnPhong()` 加入光源衰减 |
+| `main.cpp` | 两 Pass 架构：Shadow Pass 用 `ShadowDepthCalcShader` 绘入 `light_zbuffer`，Camera Pass 用 `Shadow_Blinn_PhongShader` 渲染最终画面并查询阴影；新增 Plane 地面模型承接阴影；加入深度图可视化调试代码（注释态保留） |
+| `media/Plane/plane.obj` | **新增** — 一个简单的矩形平面模型，用作地面承接阴影投影 |
+| `shader-archived.h` | **新增** — 开发过程中迭代的旧版 Shader 代码存档 |
+
+---
+
+### 10. 当前局限性
+
+- **单 Shadow Map —— 只能做点光源阴影**：当前仅从光源单方向渲染一张深度图。对于全向点光源，理论上需要 cube shadow map（6 个方向的深度图）。Day10 通过缩小 FOV（90°）并将光源放置在一定高度，在限定场景范围内获得了可接受的单方向阴影效果；
+- **硬阴影边缘**：`ShadowFactor` 只有 1.0 和 0.3 两档——产生的是硬阴影（hard shadow），没有半影区（penumbra）。后续可引入 PCF（Percentage-Closer Filtering）实现柔化阴影边缘；
+- **Bias 手工调参**：`0.0015f` 是针对当前场景手动调出的值，场景缩放或光源移动后需要重新调节；
+- **无自阴影的精细控制**：不做 `gl_FrontFacing` 判定（软件光栅器中没有这一 GPU 内置变量），所有面统一使用相同 bias。
+
+Day10 完成后，渲染器具备了完整的阴影映射能力——物体在地面上投下方向正确的阴影，光源衰减使远离光源的表面逐渐变暗。从「明暗着色」到「纹理 + 法线」再到「阴影 + 衰减」，画面的空间真实感在每一个维度上不断逼近离线渲染的效果。
+
+
+<div align="center">
+  <img src="attachments/阴影渲染前后对比.png" width="520">
+</div>

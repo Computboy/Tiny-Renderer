@@ -12,28 +12,23 @@
 
 Tiny Renderer 是一个面向图形学学习与底层渲染原理理解的软光栅项目。
 
-它目前已经实现了一条完整的基础渲染管线：
+它目前已经实现了一条完整的基础渲染管线（含两 Pass 阴影映射）：
 
 ```text
-OBJ Model
-   ↓
-Vertex Shader
-   ↓
-MVP Transformation
-   ↓
-Perspective Division
-   ↓
-Viewport Mapping
-   ↓
-Triangle Rasterization
-   ↓
-Barycentric Interpolation
-   ↓
-Z-Buffer Test
-   ↓
-Fragment Shader
-   ↓
-TGA Framebuffer Output
+┌─ Shadow Pass ──────────────────────────────────────┐
+│ OBJ Model → Vertex Shader (ShadowDepthCalcShader)   │
+│   → Light MVP → Z-Buffer → light_zbuffer            │
+└───────────────────────┬─────────────────────────────┘
+                        │
+┌─ Camera Pass ────────┴─────────────────────────────┐
+│ OBJ Model → Vertex Shader (Shadow_Blinn_PhongShader)│
+│   → MVP Transformation → Perspective Division       │
+│   → Viewport Mapping → Triangle Rasterization        │
+│   → Barycentric Interpolation                        │
+│   → Query light_zbuffer (Shadow Test)                │
+│   → Fragment Shader (Blinn-Phong + Attenuation)      │
+│   → Z-Buffer Test → TGA Framebuffer Output           │
+└─────────────────────────────────────────────────────┘
 ```
 
 相比直接使用 OpenGL，本项目更关注：
@@ -66,6 +61,10 @@ TGA Framebuffer Output
 - Normal Mapping 法线贴图
 - TBN 切线空间构建
 - 透视矫正插值
+- Shadow Mapping 阴影映射
+- 点光源光照衰减
+- Alpha-Testing 透明裁剪
+- Specular Map 高光贴图
 
 ---
 
@@ -79,7 +78,7 @@ TGA Framebuffer Output
 | Image Output | TGA |
 | Model Format | OBJ |
 | Core Concepts | Rasterization, Barycentric Coordinates, Z-Buffer, MVP, Shader Pipeline |
-| Shading | Flat Shading, Blinn-Phong, Texture Mapping, Normal Mapping |
+| Shading | Flat Shading, Blinn-Phong, Texture Mapping, Normal Mapping, Shadow Mapping, Attenuation |
 
 ---
 
@@ -197,10 +196,12 @@ Framebuffer
 
 目前已经实现的 Shader 包括：
 
-- `FlatShader`
-- `Blinn_PhongShader`
-- 支持 Diffuse Texture 的 Blinn-Phong Shader
-- 支持 Normal Mapping 的 Blinn-Phong Shader
+- `FlatShader` — 随机颜色填充
+- `Blinn_PhongShader` — 支持 Diffuse / Normal / Specular 贴图 + Blinn-Phong 光照 + 透视矫正插值
+- `ShadowDepthCalcShader` — 光源视角深度采集（Shadow Pass）
+- `Shadow_Blinn_PhongShader` — 继承 Blinn-Phong，增加阴影查询 + 光照衰减
+
+每种 Shader 都实现了 `IShader` 接口的 `vertex()` 和 `fragment()` 方法，由 `Draw()` 函数统一驱动。
 
 这种设计让后续扩展 Gouraud Shading、Shadow Mapping、PBR 等效果更自然。
 
@@ -274,7 +275,32 @@ Blinn-Phong Lighting
 
 因此项目对 UV、法线、世界坐标等属性引入透视矫正插值，避免纹理和法线在透视视角下产生错误变形。
 
-这是从“能跑起来的软光栅”走向“更接近真实渲染管线”的关键一步。
+这是从”能跑起来的软光栅”走向”更接近真实渲染管线”的关键一步。
+
+---
+
+### 5.10 Shadow Mapping
+
+项目实现了基础 Shadow Mapping——通过两 Pass 渲染在场景中产生阴影：
+
+**Pass 1 — Shadow Pass**：从点光源视角渲染场景，使用 `ShadowDepthCalcShader` 将深度信息写入独立的 `light_zbuffer`。
+
+**Pass 2 — Camera Pass**：从观察者视角正常渲染，`Shadow_Blinn_PhongShader` 将每个片段的世界空间坐标变换到光源屏幕空间，在 `light_zbuffer` 中查询深度，判定该片段是否处于阴影中。
+
+核心思路是利用世界空间坐标作为两个 Pass 之间的桥梁——不计算逆矩阵，而是正向走两条 MVP 变换链：
+
+```text
+世界空间 frag_WorldPos
+        │
+   ┌────┴────┐
+   │         │
+Camera MVP  Light MVP
+   │         │
+   ▼         ▼
+渲染画面   查 Shadow Map → Shadow Factor
+```
+
+同时，光照计算引入了随距离的二次衰减（Attenuation），使远离光源的表面自然变暗。Shadow Factor 只削弱漫反射与镜面反射分量，环境光不受影响——保证阴影区域不会完全漆黑。
 
 ---
 
@@ -291,6 +317,7 @@ Blinn-Phong Lighting
 | Day 7 | Blinn-Phong Lighting | 实现环境光、漫反射和镜面高光 |
 | Day 8 | Texture Mapping | 支持 Diffuse 纹理采样与材质颜色 |
 | Day 9 | Normal Mapping | 实现 TBN 切线空间与法线贴图光照细节 |
+| Day 10 | Shadow Mapping | 实现 Shadow Map 两 Pass 阴影渲染 + 光照衰减 |
 
 ---
 
@@ -357,19 +384,21 @@ Tiny-Renderer/
 ├── CMakeLists.txt
 ├── ConstructionLog.md
 ├── README.md
-├── assets
-├── attachments
-├── geometry.h
-├── main.cpp
-├── rendering.cpp
-├── rendering.h
-├── shader.h
-├── tgaimage.cpp
-├── tgaimage.h
-├── tinyobjloader.cpp
-├── tinyobjloader.h
-├── transformation.cpp
-└── transformation.h
+├── assets/                 # 渲染截图
+├── attachments/            # 推导笔记与参考资料
+├── media/                  # 模型与纹理资源
+│   ├── Backpack/
+│   ├── OldHouse/
+│   ├── Plane/
+│   └── diablo3_pose.obj
+├── geometry.h              # 向量、矩阵数学库
+├── main.cpp                # 入口：场景配置 + MVP + Draw Call
+├── rendering.cpp/h         # 光栅化与绘制主循环
+├── shader.cpp/h            # IShader 接口 + 各 Shader 实现
+├── shader-archived.h       # 旧版 Shader 开发存档
+├── tgaimage.cpp/h          # TGA 图像读写
+├── tinyobjloader.cpp/h     # OBJ 模型解析
+└── transformation.cpp/h    # MVP 变换矩阵
 ```
 
 ## 10｜References

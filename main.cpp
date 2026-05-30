@@ -46,7 +46,7 @@ int main(int argc, char** argv) {
         * Scale(0.5f);
 
     mat4f planeModelMatrix =
-        Translate(0.0f, -1.0f, -1.2f)
+        Translate(0.0f, -1.2f, -1.2f)
         * RotateY(45.0f)
         * Scale(2.0f);
 
@@ -123,7 +123,7 @@ int main(int argc, char** argv) {
 
     // Draw(OldHouse, myShader2, framebuf, zbuffer);
 
-    // framebuf.write_tga_file("framebuffer1.tga");
+    framebuf.write_tga_file("framebuffer1.tga");
 
 
     // TGAImage shadowDepthVis(width, height, TGAImage::RGB);
