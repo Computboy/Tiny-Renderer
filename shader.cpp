@@ -407,10 +407,11 @@ Shadow_Blinn_PhongShader::Shadow_Blinn_PhongShader(
       ),
       shadowBuffer(shadowBuffer_),
       lightMVP(lightMVP_),
-      bias(0.005f)
+      bias(0.0015f)
 {
-    shadowHeight = shadowBuffer.size();
-    shadowWidth = shadowHeight > 0 ? shadowBuffer[0].size() : 0;
+    shadowWidth = shadowBuffer.size();
+    shadowHeight = shadowBuffer[0].size();
+    shadowHeight = shadowHeight > 0 ? shadowHeight : 0;
     Lightviewport = Viewport(shadowWidth, shadowHeight);
 }
 
@@ -453,11 +454,19 @@ color3f Shadow_Blinn_PhongShader::shadow_BlinnPhong(
     float currentDepth = lightScreenPos.z;
     // 简易变量名
 
-    if (sx >= 0 && sx <= shadowWidth && sy >= 0 && sy < shadowHeight){
-        if(getShadowDepth(sx, sy) < currentDepth - bias)
+    if (sx >= 0 && sx < shadowWidth && sy >= 0 && sy < shadowHeight){
+        float closestDepth = getShadowDepth(sx, sy);
+        if(closestDepth < 1.0f && closestDepth < currentDepth - bias)
             // 采用的是z值越小越前的逻辑
             ShadowFactor = 0.3f;
     }
+
+    // if (ShadowFactor < 1.0f) {
+    //     return color3f(1.0f, 0.0f, 0.0f);   // 阴影：红色
+    // } else {
+    //     return color3f(1.0f, 1.0f, 1.0f);   // 非阴影：白色
+    // }
+    // 判断是否真正生成了阴影
 
     float ambientStrength = 0.10f;
     vec3f ambient = baseColor * ambientStrength;
