@@ -15,19 +15,19 @@ Tiny Renderer 是一个面向图形学学习与底层渲染原理理解的软光
 它目前已经实现了一条完整的基础渲染管线（含两 Pass 阴影映射）：
 
 ```text
-┌─ Shadow Pass ──────────────────────────────────────┐
+┌─ Shadow Pass ───────────────────────────────────────┐
 │ OBJ Model → Vertex Shader (ShadowDepthCalcShader)   │
 │   → Light MVP → Z-Buffer → light_zbuffer            │
-└───────────────────────┬─────────────────────────────┘
-                        │
-┌─ Camera Pass ────────┴─────────────────────────────┐
+└──────────────────────────┬──────────────────────────┘
+                           │
+┌─ Camera Pass ────────────┴──────────────────────────┐
 │ OBJ Model → Vertex Shader (Shadow_Blinn_PhongShader)│
 │   → MVP Transformation → Perspective Division       │
-│   → Viewport Mapping → Triangle Rasterization        │
-│   → Barycentric Interpolation                        │
-│   → Query light_zbuffer (Shadow Test)                │
-│   → Fragment Shader (Blinn-Phong + Attenuation)      │
-│   → Z-Buffer Test → TGA Framebuffer Output           │
+│   → Viewport Mapping → Triangle Rasterization       │
+│   → Barycentric Interpolation                       │
+│   → Query light_zbuffer (Shadow Test)               │
+│   → Fragment Shader (Blinn-Phong + Attenuation)     │
+│   → Z-Buffer Test → TGA Framebuffer Output          │
 └─────────────────────────────────────────────────────┘
 ```
 

@@ -2931,19 +2931,19 @@ shadowDepthVis.write_tga_file("shadow_depth_vis.tga");
 
 ```text
 ┌─────────────────────────────────────────────────────────────┐
-│ PASS 1 — Shadow Pass（光源视角）                              │
+│ PASS 1 — Shadow Pass（光源视角）                             │
 │                                                             │
-│ OBJ → [Model] → [Light View] → [Light Proj] → [÷w] → NDC   │
-│     → [Viewport] → 光栅化 → Z-Buffer 写入 → light_zbuffer   │
+│ OBJ → [Model] → [Light View] → [Light Proj] → [÷w] → NDC    │
+│     → [Viewport] → 光栅化 → Z-Buffer 写入 → light_zbuffer    │
 └─────────────────────────────────────────────────────────────┘
                               │
                               ▼
 ┌─────────────────────────────────────────────────────────────┐
-│ PASS 2 — Camera Pass（观察者视角）                            │
+│ PASS 2 — Camera Pass（观察者视角）                           │
 │                                                             │
-│ OBJ → [Model] → [View] → [Proj] → [÷w] → NDC → [Viewport]  │
+│ OBJ → [Model] → [View] → [Proj] → [÷w] → NDC → [Viewport]   │
 │     → 光栅化 → 重心插值 (worldPos + normal + uv)             │
-│     → 纹理采样 (diffuse + normal + specular)                │
+│     → 纹理采样 (diffuse + normal + specular)                 │
 │     → TBN 正交化 + 法线扰动                                  │
 │     → ⭐ 查询 light_zbuffer ← frag_WorldPos → lightMVP      │
 │     → Shadow Factor 判定                                    │
