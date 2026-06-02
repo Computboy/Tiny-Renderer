@@ -80,6 +80,7 @@ struct vec4 {
     vec4() : x(0), y(0), z(0), w(0) {}
     vec4(T x) : x(x), y(x), z(x), w(x) {}
     vec4(T x, T y, T z, T w) : x(x), y(y), z(z), w(w) {}
+    vec4(const vec3<T>& vec, T w) : x(vec.x), y(vec.y), z(vec.z), w(w) {}
 
     // 下标访问（支持读写）
     T& operator[](int i) {
@@ -296,9 +297,15 @@ struct mat3 {
     const T* operator[](int i) const {
         return m[i];
     }
-};
 
-using mat4f = mat4<float>;
+    mat3(const mat4<T>& m4) {
+        for (int i = 0; i < 3; ++i) {
+            for (int j = 0; j < 3; ++j) {
+                m[i][j] = m4[i][j]; // 直接取mat4的前3行、前3列
+            }
+        }
+    }
+};
 
 // ====== Matrices-Multiplication 矩阵乘矩阵 ======
 template <typename T>

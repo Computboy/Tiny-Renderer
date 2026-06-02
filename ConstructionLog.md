@@ -2996,3 +2996,20 @@ shadowDepthVis.write_tga_file("shadow_depth_vis.tga");
 - **无自阴影的精细控制**：不做 `gl_FrontFacing` 判定（软件光栅器中没有这一 GPU 内置变量），所有面统一使用相同 bias。
 
 Day10 完成后，渲染器具备了完整的阴影映射能力——物体在地面上投下方向正确的阴影，光源衰减使远离光源的表面逐渐变暗。从「明暗着色」到「纹理 + 法线」再到「阴影 + 衰减」，画面的空间真实感在每一个维度上不断逼近离线渲染的效果。
+
+## Day11 - 屏幕空间环境光遮蔽
+环境光遮蔽（Ambient Occlusion, AO）可以被看作是对传统环境光计算的修正。目标是得到一个`float`类型的AO值，作用在环境光系数上。
+```cpp
+color = ambient * AO + diffuse + specular;
+```
+<strong>问题：</strong>如何确定屏幕中某个像素**被遮蔽**的系数？
+
+> 暴力解法：从多个方向做多轮Shadow Test，然后计算平均遮挡结果，这种Brute-Force（暴力破解）方法可以较好地近似得到遮蔽程度，但是需要多轮渲染Pass，
+> 时间层面较差。
+
+
+<div style="text-align: center; font-weight: bold;">
+  理论核心：在 View Space 中沿 normal 半球生成 sample，投影到屏幕位置，再和该屏幕位置的真实 zbuffer / gViewPos 深度比较。
+</div>
+
+这就是屏幕空间环境光遮蔽的具体理论基础。
