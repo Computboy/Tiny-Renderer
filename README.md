@@ -12,23 +12,29 @@
 
 Tiny Renderer 是一个面向图形学学习与底层渲染原理理解的软光栅项目。
 
-它目前已经实现了一条完整的基础渲染管线（含两 Pass 阴影映射）：
+它目前已经实现了一条完整的基础渲染管线（含三 Pass SSAO + 阴影映射）：
 
 ```text
-┌─ Shadow Pass ───────────────────────────────────────┐
-│ OBJ Model → Vertex Shader (ShadowDepthCalcShader)   │
-│   → Light MVP → Z-Buffer → light_zbuffer            │
-└──────────────────────────┬──────────────────────────┘
+┌─ Pass 1: Shadow Pass（光源视角）──────────────────────────┐
+│ OBJ Model → Vertex Shader (ShadowDepthCalcShader)         │
+│   → Light MVP → Z-Buffer → light_zbuffer                  │
+└──────────────────────────┬───────────────────────────────┘
                            │
-┌─ Camera Pass ────────────┴──────────────────────────┐
-│ OBJ Model → Vertex Shader (Shadow_Blinn_PhongShader)│
-│   → MVP Transformation → Perspective Division       │
-│   → Viewport Mapping → Triangle Rasterization       │
-│   → Barycentric Interpolation                       │
-│   → Query light_zbuffer (Shadow Test)               │
-│   → Fragment Shader (Blinn-Phong + Attenuation)     │
-│   → Z-Buffer Test → TGA Framebuffer Output          │
-└─────────────────────────────────────────────────────┘
+┌─ Pass 2: Camera Depth Pre-Pass ───────────────────────────┐
+│ OBJ Model → Vertex Shader (ShadowDepthCalcShader)         │
+│   → Camera MVP → Z-Buffer → camera_zbuffer (SSAO 查询用)  │
+└──────────────────────────┬───────────────────────────────┘
+                           │
+┌─ Pass 3: Camera Final Pass ───────────┬───────────────────┘
+│ OBJ Model → Vertex Shader (Shadow_Blinn_PhongShader)      │
+│   → MVP Transformation → Perspective Division             │
+│   → Viewport Mapping → Triangle Rasterization             │
+│   → Barycentric Interpolation                             │
+│   → Query light_zbuffer (Shadow Test)                     │
+│   → Query camera_zbuffer (SSAO — Screen Space AO)         │
+│   → Fragment Shader (Blinn-Phong + Attenuation)           │
+│   → Z-Buffer Test → TGA Framebuffer Output                │
+└───────────────────────────────────────────────────────────┘
 ```
 
 相比直接使用 OpenGL，本项目更关注：
@@ -39,6 +45,8 @@ Tiny Renderer 是一个面向图形学学习与底层渲染原理理解的软光
 - 深度测试如何解决遮挡关系
 - 光照与纹理如何在 Fragment 阶段参与计算
 - 法线贴图如何在不增加几何复杂度的情况下增强表面细节
+- 阴影映射如何通过两 Pass 深度比较判定遮挡关系
+- 屏幕空间环境光遮蔽（SSAO）如何在单张深度图的基础上近似全局光照的遮蔽效应
 
 ---
 
@@ -62,6 +70,7 @@ Tiny Renderer 是一个面向图形学学习与底层渲染原理理解的软光
 - TBN 切线空间构建
 - 透视矫正插值
 - Shadow Mapping 阴影映射
+- 屏幕空间环境光遮蔽（SSAO）
 - 点光源光照衰减
 - Alpha-Testing 透明裁剪
 - Specular Map 高光贴图
@@ -78,7 +87,7 @@ Tiny Renderer 是一个面向图形学学习与底层渲染原理理解的软光
 | Image Output | TGA |
 | Model Format | OBJ |
 | Core Concepts | Rasterization, Barycentric Coordinates, Z-Buffer, MVP, Shader Pipeline |
-| Shading | Flat Shading, Blinn-Phong, Texture Mapping, Normal Mapping, Shadow Mapping, Attenuation |
+| Shading | Flat Shading, Blinn-Phong, Texture Mapping, Normal Mapping, Shadow Mapping, SSAO, Attenuation |
 
 ---
 
@@ -198,8 +207,8 @@ Framebuffer
 
 - `FlatShader` — 随机颜色填充
 - `Blinn_PhongShader` — 支持 Diffuse / Normal / Specular 贴图 + Blinn-Phong 光照 + 透视矫正插值
-- `ShadowDepthCalcShader` — 光源视角深度采集（Shadow Pass）
-- `Shadow_Blinn_PhongShader` — 继承 Blinn-Phong，增加阴影查询 + 光照衰减
+- `ShadowDepthCalcShader` — 光源视角深度采集（Shadow Pass / Depth Pre-Pass）
+- `Shadow_Blinn_PhongShader` — 继承 Blinn-Phong，增加阴影查询 + SSAO + 光照衰减
 
 每种 Shader 都实现了 `IShader` 接口的 `vertex()` 和 `fragment()` 方法，由 `Draw()` 函数统一驱动。
 
@@ -308,6 +317,27 @@ Camera MVP  Light MVP
 
 ---
 
+### 5.11 Screen Space Ambient Occlusion (SSAO)
+
+SSAO 通过分析屏幕空间中每个像素周围的几何分布，估算该点的环境光遮蔽程度——使角落、缝隙和物体接触边缘呈现出自然的暗部过渡。
+
+核心思路：在观察空间中，对每个片段沿其法线方向的上半球随机生成采样点，将采样点投影回屏幕空间，与 Camera Depth Buffer 中该位置的深度做比较，统计被周围几何体遮挡的比例作为 AO 因子。
+
+实现要点：
+
+- **三 Pass 架构**：Camera Depth Pre-Pass 生成相机视角深度缓冲（`camera_zbuffer`），供 SSAO 在 Final Pass 中查询；
+- **随机采样核**：预生成 20 个落在法线半球方向上的随机采样点，以二次衰减分布使更多采样点聚集在靠近片元的位置；
+- **观察空间 TBN**：以片段观察空间法线为 Z 轴构建正交基，将采样核旋转到正确的法线方向；
+- **NDC 空间深度比较**：将屏幕空间深度反算回 NDC 做遮挡判定，比直接在 screen.z 空间比较具有更均匀的精度分布。
+
+最终 AO 因子乘在环境光分量上：被周围几何体包围的区域变暗、暴露在外的表面保持原有亮度——使环境光从「全局常数」进化为逐像素遮蔽量。
+
+<div align="center">
+  <img src="attachments/ao_factor输出图.png" width="720">
+</div>
+
+---
+
 ## 06｜Development Progress
 
 | Stage | Topic | Main Result |
@@ -322,6 +352,7 @@ Camera MVP  Light MVP
 | Day 8 | Texture Mapping | 支持 Diffuse 纹理采样与材质颜色 |
 | Day 9 | Normal Mapping | 实现 TBN 切线空间与法线贴图光照细节 |
 | Day 10 | Shadow Mapping | 实现 Shadow Map 两 Pass 阴影渲染 + 光照衰减 |
+| Day 11 | Screen Space AO | 实现 SSAO — 屏幕空间环境光遮蔽 + 三 Pass 架构 |
 
 ---
 
@@ -361,6 +392,12 @@ Camera MVP  Light MVP
 
 <div align="center">
   <img src="assets/1_10.png" width="520">
+</div>
+
+### Screen Space Ambient Occlusion
+
+<div align="center">
+  <img src="assets/1_11.png" width="520">
 </div>
 
 ---

@@ -2997,35 +2997,360 @@ shadowDepthVis.write_tga_file("shadow_depth_vis.tga");
 
 Day10 完成后，渲染器具备了完整的阴影映射能力——物体在地面上投下方向正确的阴影，光源衰减使远离光源的表面逐渐变暗。从「明暗着色」到「纹理 + 法线」再到「阴影 + 衰减」，画面的空间真实感在每一个维度上不断逼近离线渲染的效果。
 
-## Day11 - 屏幕空间环境光遮蔽
-环境光遮蔽（Ambient Occlusion, AO）可以被看作是对传统环境光计算的修正。目标是得到一个`float`类型的AO值，作用在环境光系数上。
+## Day11 - 屏幕空间环境光遮蔽（SSAO）
+
+Day10 的阴影映射解决了「光源能否直接照到某个表面」的问题——但它是二元的：要么被遮挡（阴影），要么不被遮挡。在真实世界中，即使不被直接光源遮挡，角落、缝隙和物体接触面之间的区域也会因为周围几何体的遮挡而接收到更少的间接光照。这些区域的共同特征是：**周围有大量几何体挡住了来自各个方向的漫反射光**。
+
+Day11 的目标是引入 **屏幕空间环境光遮蔽（Screen Space Ambient Occlusion, SSAO）**，通过分析屏幕空间中每个像素周围的几何分布，估算该点的环境光被遮挡程度，使画面中的缝隙、凹角和接触边缘呈现出自然的暗部过渡。
+
+---
+
+### 1. 环境光遮蔽的核心问题
+
+传统 Blinn-Phong 的环境光分量是全局常数——场景中所有表面都接收相同强度的环境光基底。这导致的视觉问题是：背包与地面接触的边缘、模型自身的褶皱缝隙，与直接暴露在外的平坦表面一样亮——缺乏空间深度感。
+
+环境光遮蔽（Ambient Occlusion, AO）修正了这一缺陷：为每个像素计算一个遮蔽因子 $AO \in [0, 1]$，乘在环境光分量上：
+
 ```cpp
 color = ambient * AO + diffuse + specular;
 ```
-<strong>问题：</strong>如何确定屏幕中某个像素**被遮蔽**的系数？
 
-> 暴力解法：从多个方向做多轮Shadow Test，然后计算平均遮挡结果，这种Brute-Force（暴力破解）方法可以较好地近似得到遮蔽程度，但是需要多轮渲染Pass，
-> 时间层面较差。
+- $AO = 0$：该点完全被周围几何体遮蔽，几乎不接收环境光（如狭窄缝隙深处）；
+- $AO = 1$：该点完全暴露在环境中，充分接收环境光（如平坦表面的中心）。
 
+直观理解：伸出你的手指，举到脸前——每根手指弯曲与手掌接触的缝隙处会显得更暗，这就是环境光遮蔽的效果。
 
-<div style="text-align: center; font-weight: bold;">
-  理论核心：在 View Space 中沿 normal 半球生成 sample，投影到屏幕位置，再和该屏幕位置的真实 zbuffer / gViewPos 深度比较。
-</div>
+> **暴力解法**：从每个像素向法线半球随机发射大量射线，对每条射线做完整的 Shadow Test（走一遍光源 MVP + 深度查询），统计被遮蔽的比例。这在物理上是正确的，但需要多轮渲染 Pass——性能不可行。
 
-这就是屏幕空间环境光遮蔽的具体理论基础。
+因此，现代实时渲染中普遍采用 SSAO——一种仅依赖屏幕空间深度信息的近似方案。
 
-> 渲染调试的常用方法总结：阴影/环境光遮蔽因数这种输出是float的/深度图等，可以转换为单色区分/8-bit调试图......
+---
 
-这张输出图左侧是`radius = 1.0f`，右侧是`radius = 0.25f`，环境光遮蔽输出明显减少了一点漂移与不真实感。  
-这说明了渲染管线的调试输出到最后会变成一种**经验路径**（怎么感觉和机器学习调超参数类似）
+### 2. SSAO 的理论核心：View Space 法线半球采样
+
+SSAO 的核心思路是：
+
+> 在观察空间（View Space）中，对每个片段沿其法线方向的上半球（hemisphere）随机生成若干个采样点，将每个采样点投影回屏幕空间，与 Camera Depth Buffer 中该位置的深度做比较，判断采样点是否被场景中的几何体遮挡。
+
+```text
+对于片段 P（世界空间）:
+  1. 变换到观察空间 → frag_ViewPos
+  2. 在 P 点的法线正半球方向生成 N 个随机采样点
+  3. 每个采样点投影到屏幕空间 → (sx, sy, sampleDepth)
+  4. 查询 camera_zbuffer[sx][sy] → sceneDepth
+  5. 若 sceneDepth 更近 → 说明有几何体遮挡了采样点 → occlusion++
+  6. AO = 1 - (occlusion / validSampleCount)
+```
+
+整个过程只在屏幕空间进行——不需要走 Shadow Map 的光源 MVP 变换链，也不需要对每个采样点发射射线，因此效率远高于暴力光线追踪。
+
+---
+
+### 3. 新增 Camera Depth Pre-Pass
+
+SSAO 需要一张**从相机视角**的深度缓冲区——此前 Day10 只维护了 `light_zbuffer`（光源视角的深度），而 `final_zbuffer` 是在渲染过程中边画边更新的，无法在 fragment 阶段提前查询其他像素的深度。
+
+因此 Day11 在 Shadow Pass 和 Camera Final Pass 之间新增了一个 **Camera Depth Pre-Pass**：
+
+```cpp
+// Pass 2: Camera depth pre-pass
+z_buffer camera_zbuffer(width, std::vector<float>(height, 1.0f));
+
+ShadowDepthCalcShader backpackCameraDepth(BackPack,
+    backpackModelMatrix, viewMatrix, perspectiveMatrix);
+Draw(BackPack, backpackCameraDepth, cameraDepthDebug, camera_zbuffer);
+
+ShadowDepthCalcShader planeCameraDepth(Plane,
+    planeModelMatrix, viewMatrix, perspectiveMatrix);
+Draw(Plane, planeCameraDepth, cameraDepthDebug, camera_zbuffer);
+```
+
+> 注意：这里仍然使用了 `ShadowDepthCalcShader`——它的 vertex shader 只做 MVP 变换，fragment shader 返回纯白色。真正的「有效输出」是 `Draw()` 内部自动写入 `camera_zbuffer` 的深度值。这个 Pass 不产生可见的颜色输出，只为 SSAO 提供用于深度查询的屏幕空间几何信息。
+
+Day11 的渲染管线变为 **三 Pass 架构**：
+
+| Pass | 输入 | 输出 | 作用 |
+| ---- | ---- | ---- | ---- |
+| Shadow Pass | 光源视角 MVP | `light_zbuffer` | 阴影判定 |
+| Camera Depth Pre-Pass | 相机视角 MVP | `camera_zbuffer` | SSAO 深度查询 |
+| Camera Final Pass | 相机视角 MVP + Shader | `framebuf` + `final_zbuffer` | 最终着色（含阴影 + AO）|
+
+---
+
+### 4. 随机采样核（Sample Kernel）生成
+
+SSAO 需要在每个像素的观察空间法线半球上生成随机采样点。这些采样点的坐标是观察空间中的三维向量，预先在 Shader 构造函数中生成一次，随后被所有像素复用。
+
+**`generateSampleKernel()` 的实现**（`shader.cpp`）：
+
+```cpp
+void Shadow_Blinn_PhongShader::generateSampleKernel() {
+    sampleKernel.clear();
+    sampleKernel.reserve(sample_Num);
+
+    std::mt19937 rng(42);  // 固定 seed，方便调试
+    std::uniform_real_distribution<float> randomFloats(0.0f, 1.0f);
+
+    for (int i = 0; i < sample_Num; i++) {
+        vec3f sample(
+            randomFloats(rng) * 2.0f - 1.0f,  // x ∈ [-1, 1]
+            randomFloats(rng) * 2.0f - 1.0f,  // y ∈ [-1, 1]
+            randomFloats(rng)                 // z ∈ [ 0, 1]
+        );
+
+        sample = sample.normalize();           // 保证落在半球表面
+        sample = sample * randomFloats(rng);   // 随机长度：避免所有采样点都在表面
+
+        // 让更多采样点靠近当前片元（近处几何体对遮蔽贡献更大）
+        float scale = static_cast<float>(i) / static_cast<float>(sample_Num);
+        scale = lerp(0.1f, 1.0f, scale * scale);
+        sample = sample * scale;
+
+        sampleKernel.push_back(sample);
+    }
+}
+```
+
+几个关键设计决策：
+
+| 设计 | 原因 |
+| ---- | ---- |
+| `z ∈ [0, 1]`，归一化后自动落在 +Z 半球 | 采样核按「默认法线 = (0,0,1)」的切线空间生成，后续通过 TBN 旋转到实际法线方向 |
+| 随机长度（非全在半球表面） | 如果所有采样点都在半径球面上，会导致遮蔽值出现明显的带状分层 |
+| 二次衰减的 `scale`（`scale * scale`） | 使更多采样点聚集在靠近片元的位置——近处几何体对遮蔽的贡献远大于远处几何体 |
+| 固定 seed（42） | 确保每次运行采样核相同，便于对比不同参数（radius、sample count 等）的效果 |
+
+---
+
+### 5. 观察空间 TBN 构建与半球采样
+
+采样核是在「法线 = (0, 0, 1)」的默认切线空间中生成的。对于每个具体的片段，需要以该片段的实际法线 $\vec{N}_{view}$ 为 Z 轴构建切线空间基，将采样点旋转到正确的法线方向。
+
+**`CalculateSSAO()` 中的 TBN 构造**：
+
+```cpp
+vec3f N = frag_ViewNormal.normalize();
+
+// 生成一个不与 N 平行的随机方向
+vec3f randomVec = (std::abs(N.x) > 0.9f)
+    ? vec3f(0.0f, 1.0f, 0.0f)
+    : vec3f(1.0f, 0.0f, 0.0f);
+
+// Gram-Schmidt 正交化：T 是 randomVec 在 N 法平面上的投影
+vec3f T = (randomVec - N * dot(randomVec, N)).normalize();
+vec3f B = cross(N, T).normalize();
+```
+
+> 这里 `randomVec` 的作用不是「随机旋转」——它只是一个不与 $\vec{N}$ 平行的任意向量，用于构造正交的 T 轴。真正的随机性来自采样核中每个采样点自身的随机方向。
+
+**半球采样与投影**：
+
+```cpp
+for (int i = 0; i < sample_Num; i++) {
+    vec3f sample = sampleKernel[i];
+
+    // 将切线空间采样旋转到观察空间世界法线方向
+    vec3f sampleDir = T * sample.x + B * sample.y + N * sample.z;
+
+    // 在法线半球方向偏移，得到采样点的观察空间位置
+    vec3f sample_ViewPos = frag_ViewPos + sampleDir * radius;
+
+    // 将采样点从观察空间投影到屏幕空间
+    vec4f clip   = projectionMatrix * vec4f(sample_ViewPos, 1.0f);
+    vec3f ndc    = clip.to_vec3();                              // 透视除法
+    vec3f screen = TransformPoint(Viewport(scr_width, scr_height), ndc);
+
+    int sx = static_cast<int>(screen.x);
+    int sy = static_cast<int>(screen.y);
+    // ...
+}
+```
+
+流程图解：
+
+```text
+片段观察空间位置 (frag_ViewPos)
+        │
+        │  TBN 构造：(T, B, N) — 以 N 为 Z 轴的正交基
+        ▼
+采样核 [sample_0, ..., sample_19]  → TBN 旋转 → 观察空间半球采样点
+        │
+        │  projectionMatrix → ÷w → Viewport
+        ▼
+屏幕空间坐标 (sx, sy, sampleDepth)
+        │
+        │  查询 camera_zbuffer[sx][sy]
+        ▼
+深度比较 → occlusion 统计
+```
+
+---
+
+### 6. NDC 空间深度比较
+
+投影到屏幕空间后的深度（`screen.z`）是经过 Viewport 变换后的非线性深度：`screen.z = -0.5 × ndc.z + 0.5`。直接在 `screen.z` 空间比较会因为透视投影的非线性分布导致误差。
+
+更好的做法是**反算回 NDC 空间**，在 NDC 的 $z$（虽然也是非线性的，但精度分布比 screen.z 更均匀）中做比较：
+
+```cpp
+// screen.z = -0.5 * ndc.z + 0.5  ⇔  ndc.z = 1.0 - 2.0 * screen.z
+float sceneNdcZ  = 1.0f - 2.0f * sceneDepth;
+float sampleNdcZ = 1.0f - 2.0f * sampleDepth;
+
+// ndc.z = 1 为近平面，-1 为远平面
+// sceneNdcZ > sampleNdcZ → scene 更近 → sample 被遮挡
+if (sceneNdcZ > sampleNdcZ + 0.0005f) {
+    occlusion += 1.0f;
+}
+```
+
+**Bias 的作用**：`0.0005f` 的微小偏移量用于防止浮点精度导致的「表面自身遮挡」（与 Shadow Acne 的原理类似）。NDC $z$ 虽然是经过透视除法的非线性值，但其范围固定在 $[-1, 1]$，bias 仍然只需要一个很小的值即有效。
+
+> **为什么 NDC 比较比 Screen.z 比较更好**：Screen.z 经过了 `-0.5 * ndc.z + 0.5` 的缩放和平移——虽然范围仍在 $[0, 1]$，但透视投影的非线性在 screen.z 中被进一步压缩，导致近平面附近的分辨率严重不足。在 NDC 空间中做比较可以缓解这一问题。真正的精度最优方案是在 **线性深度**（如 $1/z$）上比较，但对于当前阶段，NDC 比较已经是一个合理的折中。
+
+**需要注意的特殊情况**：
+
+```cpp
+// 跳过采样点越出屏幕边缘的情况
+if (sx < 0 || sx >= scr_width || sy < 0 || sy >= scr_height) continue;
+
+// 跳过远平面（无几何体的背景区域）
+if (sceneDepth >= 1.0f) continue;
+```
+
+- 落在屏幕外的采样点无法查询深度，因此不计入遮挡统计；
+- `sceneDepth >= 1.0f`（即 Z-Buffer 初始值）表示该像素没有几何体——背景区域不应贡献遮挡。
+
+**最终遮蔽因子**：
+
+```cpp
+float AO = 1.0f - occlusion / valid_Num;
+```
+
+`AO = 1` 表示完全没有被遮挡（所有采样点都暴露在几何体前方），`AO = 0` 表示完全被遮挡。
+
+---
+
+### 7. Fragment 阶段的 SSAO 接入
+
+在 fragment shader 中，SSAO 的计算发生在法线贴图处理之后、光照计算之前：
+
+```cpp
+// fragment() 中的关键步骤：
+
+// 1. 先计算 world-space 法线（含 normal mapping）
+vec3f finalNormal = T * n_tangent.x + B * n_tangent.y + N * n_tangent.z;
+
+// 2. 将 worldPos 和 finalNormal 变换到 view space（SSAO 计算所需）
+vec3f frag_ViewPos = (
+    viewMatrix * vec4f(frag_WorldPos, 1.0f)
+).to_vec3();
+
+vec3f frag_ViewNormal = (
+    viewMatrix * vec4f(finalNormal, 0.0f)
+).to_vec3().normalize();
+
+// 3. 计算 AO 因子
+float ao_factor = CalculateSSAO(frag_ViewPos, frag_ViewNormal);
+
+// 4. 将 AO 传入光照计算
+color3f result = shadow_BlinnPhong(baseColor, specColor,
+    frag_WorldPos, finalNormal, ao_factor);
+```
+
+注意法线在 `viewMatrix` 乘法中使用 `w=0`——这是因为法线是方向向量而非位置，不应受相机平移的影响。
+
+---
+
+### 8. 调试技巧
+
+#### 8.1 直接输出 AO 因子作为颜色
+
+验证 SSAO 是否正确的最快方法是直接输出 `ao_factor` 作为灰度颜色：
+
+```cpp
+vec3f result = ao_factor;  // 注释掉完整的光照计算
+```
+
+被遮蔽的区域（缝隙、接触边缘）→ 较暗；暴露的区域（平坦表面）→ 较亮。
+
+#### 8.2 半径参数对比
 
 <div align="center">
   <img src="attachments/ao_factor输出图.png" width="780">
 </div>
 
+| 参数 | 效果 |
+| ---- | ---- |
+| `radius = 1.0f`（左） | 遮蔽范围大，AO 信号延伸较远——视觉上有「漂移」感，不真实 |
+| `radius = 0.25f`（右） | 遮蔽范围小，AO 信号更集中在真正的缝隙/接触边缘——更自然 |
 
-最终渲染输出如下：（我调整了环境光照占更大比例），在下一阶段我会着重进行阴影/SSAO的优化美观操作。
+参数调优在 SSAO 中非常依赖于场景尺度和具体视觉效果——这本质上是一种「经验路径」，类似于机器学习中的超参数调优。`radius = 0.25f` 被选为当前场景的默认值。
+
+#### 8.3 环境光强度
+
+为了更清晰地观察 SSAO 的效果，Day11 将环境光强度从 Day10 的 `0.10` 提升至 `0.65`——环境光在最终颜色中占比更大，使 AO 的明暗差异更加明显。下一阶段需要平衡 AO 权重与光照分量之间的关系，以达到更美观的视觉效果。
+
+---
+
+### 9. 渲染结果
 
 <div align="center">
   <img src="assets/1_11.png" width="520">
 </div>
+
+从渲染结果可以观察到 SSAO 的关键效果：
+
+- **接触阴影**：背包与地面接触的边缘出现了自然的暗部过渡——这在此前的纯 Blinn-Phong + Shadow Mapping 中是不存在的；
+- **模型内部细节黑暗化**：背包的缝隙、褶皱和层叠部件之间的连接处更暗——这些区域周围有大量几何体阻挡了环境光；
+- **空间真实感提升**：画面不再像 Day10 那样「所有不面向光源的表面都均匀地亮着」——从缝隙到暴露表面的明暗过渡更加接近真实光线的行为。
+
+---
+
+### 10. 当前局限性
+
+- **当前处于调试输出模式**：`shadow_BlinnPhong()` 中的 `result = ao_factor` 直接输出 AO 值作为灰度图像，而非完整的 `ambient * AO + (diffuse + specular) * attenuation * ShadowFactor`。下一阶段需要恢复完整的光照公式并调节各分量权重；
+- **无旋转噪声**：当前 TBN 构造时使用了固定的 `randomVec`（取 $(1,0,0)$ 或 $(0,1,0)$），采样核也没有引入随机旋转。这会导致 AO 输出中出现重复的采样模式（banding）。后续可以通过 a) 引入随机旋转纹理（4×4 噪声贴图）；或 b) 在 `generateSampleKernel()` 中为每个像素生成不同的随机旋转来消除；
+- **$O(N \cdot M)$ 开销**：每个像素 × 20 个采样点 = 大量深度查询——这是 SSAO 的本质特征。后续可通过降低分辨率后上采样（half-resolution SSAO）来优化性能；
+- **NDC 深度比较的精度**：NDC $z$ 虽比 screen.z 更均匀，但仍然是非线性的。最优方案是在线性深度空间中比较（如使用 $\frac{1}{z}$ 或重建线性眼空间深度）。
+
+---
+
+### 11. 新增 / 变更文件清单
+
+| 文件 | 变更 |
+| ---- | ---- |
+| `shader.h` | `Shadow_Blinn_PhongShader` 新增 `sampleKernel`、`camera_zbuffer`、`sample_Num` 成员；新增 `generateSampleKernel()`、`CalculateSSAO()` 方法；`shadow_BlinnPhong()` 签名新增 `ao_factor` 参数；构造函数新增 `depthbuffer_` 参数；新增 `<random>`、`<vector>` 头文件 |
+| `shader.cpp` | **新增** `generateSampleKernel()` 实现（随机半球采样核，含二次衰减分布）；**新增** `CalculateSSAO()` 实现（观察空间 TBN 构建 + 半球采样 + NDC 深度比较）；**新增** `lerp()` 辅助函数；`fragment()` 中新增观察空间坐标/法线变换 + SSAO 调用；`shadow_BlinnPhong()` 环境光强度从 0.10 调整为 0.65，调试模式直接输出 `ao_factor` |
+| `main.cpp` | 管线升级为三 Pass 架构：新增「Camera Depth Pre-Pass」生成 `camera_zbuffer`；`Shadow_Blinn_PhongShader` 构造时传入 `camera_zbuffer`；分离 `final_zbuffer` 与 `camera_zbuffer` |
+| `assets/1_11.png` | **新增** — Day11 渲染结果截图 |
+| `attachments/ao_factor输出图.png` | **新增** — 不同 radius 参数的 AO 对比调试截图 |
+
+---
+
+### 12. 当前管线总览
+
+```text
+┌─ Pass 1: Shadow Pass（光源视角）──────────────────────────┐
+│ OBJ → [Model] → [Light View] → [Light Proj] → [÷w] → NDC │
+│     → [Viewport] → 光栅化 → light_zbuffer                 │
+└──────────────────────────────────────────────────────────┘
+                            │
+┌─ Pass 2: Camera Depth Pre-Pass（相机视角）─────────────────┐
+│ OBJ → [Model] → [View] → [Proj] → [÷w] → NDC → [Viewport] │
+│     → 光栅化 → camera_zbuffer（供 SSAO 查询）               │
+└───────────────────────────────────────────────────────────┘
+                            │
+┌─ Pass 3: Camera Final Pass（最终着色）─────────────────────┐
+│ OBJ → [Model] → [View] → [Proj] → [÷w] → NDC → [Viewport] │
+│     → 光栅化 → 透视矫正重心插值 (worldPos + normal + uv)    │
+│     → 纹理采样 (diffuse + normal + specular)               │
+│     → TBN 正交化 + 法线扰动 → worldNormal                  │
+│     → ⭐ 变换到 View Space → CalculateSSAO()              │
+│     → ⭐ 查询 Shadow Map (light_zbuffer) → ShadowFactor   │
+│     → Blinn-Phong (ambient·AO + diffuse·shadow + specular)│
+│     → Z-Buffer 测试 → 像素输出                             │
+└───────────────────────────────────────────────────────────┘
+```
+
+Day11 完成后，渲染器具备了屏幕空间环境光遮蔽能力——缝隙、凹角和物体接触边缘呈现出自然的暗部过渡。SSAO 的引入使环境光从「全局常数」进化为「由周围几何体分布决定」的逐像素遮蔽量，画面的空间真实感进一步向离线渲染逼近。与此同时，渲染管线升级为三 Pass 架构——Shadow、Depth Pre-Pass、Final Pass 各自承担独立职责，为后续的阴影柔化和 AO 优化提供了清晰的结构基础。
