@@ -468,7 +468,7 @@ color3f Shadow_Blinn_PhongShader::shadow_BlinnPhong(
     // }
     // 判断是否真正生成了阴影
 
-    float ambientStrength = 0.10f;
+    float ambientStrength = 0.65f;
     vec3f ambient = baseColor * ambientStrength;
 
     float diff = std::max(0.0f, dot(frag_Normal, lightDir));
@@ -480,7 +480,8 @@ color3f Shadow_Blinn_PhongShader::shadow_BlinnPhong(
     float spec = std::pow(std::max(0.0f, dot(frag_Normal, halfwayDir)), shininess);
 
     vec3f specular = lightColor * specularStrength * spec;
-    vec3f result = ambient * ao_factor + (diffuse + specular) * attenuation * ShadowFactor;
+    // vec3f result = ambient * ao_factor + (diffuse + specular) * attenuation * ShadowFactor * 0.3;
+    vec3f result = ao_factor;
 
     result.x = std::clamp(result.x, 0.0f, 1.0f);
     result.y = std::clamp(result.y, 0.0f, 1.0f);
@@ -569,14 +570,14 @@ float Shadow_Blinn_PhongShader::CalculateSSAO(const vec3f& frag_ViewPos, const v
     vec3f N = frag_ViewNormal.normalize();
 
     // 先用固定随机方向
-    vec3f randomVec = (N.x > 0.9) ? vec3f(0.0f, 1.0f, 0.0f) :vec3f(1.0f, 0.0f, 0.0f);
+    vec3f randomVec = (std::abs(N.x) > 0.9f) ? vec3f(0.0f, 1.0f, 0.0f) :vec3f(1.0f, 0.0f, 0.0f);
+    // 避免正交化后接近零向量
 
     // 去掉 randomVec 在 N 方向上的投影，保证 T 和 N 正交
     vec3f T = (randomVec - N * dot(randomVec, N)).normalize();
     vec3f B = cross(N, T).normalize();
 
-    float radius = 0.5f;
-    float bias = 0.025f;
+    float radius = 0.25f;
 
     int scr_width = camera_zbuffer.size();
     int scr_height = camera_zbuffer[0].size();
@@ -615,11 +616,29 @@ float Shadow_Blinn_PhongShader::CalculateSSAO(const vec3f& frag_ViewPos, const v
         float sceneDepth = camera_zbuffer[sx][sy];
         float sampleDepth = screen.z;
 
-        if (sceneDepth < sampleDepth - bias) {
-            // 为什么要减去bias: 
+        // 跳过远平面（无几何体的区域），避免背景像素干扰遮挡计算
+        if (sceneDepth >= 1.0f) {
+            continue;
+        }
+
+        // 将 screen-space z 反算为 NDC z，在 NDC 空间做比较。
+        // NDC z 虽然仍是非线性的，但比 screen.z 的精度分布更均匀。
+        // screen.z = -0.5 * ndc.z + 0.5  ⇒  ndc.z = 1.0 - 2.0 * screen.z
+        float sceneNdcZ   = 1.0f - 2.0f * sceneDepth;
+        float sampleNdcZ  = 1.0f - 2.0f * sampleDepth;
+
+        // ndc.z 越大 = 越近（ndc.z=1 为近平面，-1 为远平面）。
+        // 如果 scene 的 ndc.z 比 sample 的 ndc.z 大，说明 scene 更靠近相机，
+        // 即 scene 遮挡了 sample → sample 被遮蔽。
+        if (sceneNdcZ > sampleNdcZ + 0.0005f) {
             occlusion += 1.0f;
         }
     }
+
+    if (valid_Num == 0) {
+        return 1.0f;
+    }
+
     occlusion /= valid_Num;
 
     return 1.0f - occlusion;

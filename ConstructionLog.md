@@ -3013,3 +3013,19 @@ color = ambient * AO + diffuse + specular;
 </div>
 
 这就是屏幕空间环境光遮蔽的具体理论基础。
+
+> 渲染调试的常用方法总结：阴影/环境光遮蔽因数这种输出是float的/深度图等，可以转换为单色区分/8-bit调试图......
+
+这张输出图左侧是`radius = 1.0f`，右侧是`radius = 0.25f`，环境光遮蔽输出明显减少了一点漂移与不真实感。  
+这说明了渲染管线的调试输出到最后会变成一种**经验路径**（怎么感觉和机器学习调超参数类似）
+
+<div align="center">
+  <img src="attachments/ao_factor输出图.png" width="780">
+</div>
+
+
+最终渲染输出如下：（我调整了环境光照占更大比例），在下一阶段我会着重进行阴影/SSAO的优化美观操作。
+
+<div align="center">
+  <img src="assets/1_11.png" width="520">
+</div>
