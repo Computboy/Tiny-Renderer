@@ -6,6 +6,11 @@
 #include "transformation.h"
 
 #include <utility>
+#include <algorithm>
+#include <cmath>
+#include <random>
+#include <vector>
+
 
 class IShader {
 public:
@@ -144,11 +149,16 @@ private:
     int shadowHeight;
     mat4f Lightviewport;
     float bias;
+    const int sample_Num = 20;
+    std::vector<vec3f> sampleKernel;
+    const std::vector<std::vector<float>>& camera_zbuffer;
+    void generateSampleKernel();
     color3f shadow_BlinnPhong(
         const color3f& baseColor,
         const float& specularColor,
         const vec3f& frag_WorldPos,
-        const normal3f& frag_Normal
+        const normal3f& frag_Normal,
+        float ao_factor
     ) const;
 
 public:
@@ -164,10 +174,11 @@ public:
         const mat4f& lightMVP_,
         const TGAImage& diffusemap_ = TGAImage(),
         const TGAImage& normalmap_ = TGAImage(),
-        const TGAImage& specularmap_ = TGAImage()
+        const TGAImage& specularmap_ = TGAImage(),
+        const std::vector<std::vector<float>>& depthbuffer_
     );
 
     std::pair<bool, TGAColor> fragment(const vec3f& bar) const override;
     float getShadowDepth(int x, int y) const;
-    float CalculateSSAO(int sx, int sy) const;
+    float CalculateSSAO(const vec3f& frag_ViewPos, const vec3f& frag_ViewNormal) const;
 };

@@ -1,9 +1,5 @@
 #include "shader.h"
 
-#include <algorithm>
-#include <cmath>
-#include <random>
-
 FlatShader::FlatShader(
     const Model& mesh_,
     const mat4f& modelMatrix_,
@@ -391,7 +387,8 @@ Shadow_Blinn_PhongShader::Shadow_Blinn_PhongShader(
     const mat4f& lightMVP_,
     const TGAImage& diffusemap_,
     const TGAImage& normalmap_,
-    const TGAImage& specularmap_
+    const TGAImage& specularmap_,
+    const std::vector<std::vector<float>>& depthbuffer_
 )
     : Blinn_PhongShader(
           mesh_,
@@ -407,12 +404,14 @@ Shadow_Blinn_PhongShader::Shadow_Blinn_PhongShader(
       ),
       shadowBuffer(shadowBuffer_),
       lightMVP(lightMVP_),
-      bias(0.0015f)
+      bias(0.0015f),
+      camera_zbuffer(depthbuffer_)
 {
     shadowWidth = shadowBuffer.size();
     shadowHeight = shadowBuffer[0].size();
     shadowHeight = shadowHeight > 0 ? shadowHeight : 0;
     Lightviewport = Viewport(shadowWidth, shadowHeight);
+    generateSampleKernel();
 }
 
 float Shadow_Blinn_PhongShader::getShadowDepth(int x, int y) const{
@@ -423,7 +422,8 @@ color3f Shadow_Blinn_PhongShader::shadow_BlinnPhong(
         const color3f& baseColor,
         const float& specularColor,
         const vec3f& frag_WorldPos,
-        const normal3f& frag_Normal
+        const normal3f& frag_Normal,
+        float ao_factor
 )const {
     vec3f lightDir = (lightPosition - frag_WorldPos).normalize();
     vec3f viewDir  = (cameraPos - frag_WorldPos).normalize();
@@ -480,7 +480,7 @@ color3f Shadow_Blinn_PhongShader::shadow_BlinnPhong(
     float spec = std::pow(std::max(0.0f, dot(frag_Normal, halfwayDir)), shininess);
 
     vec3f specular = lightColor * specularStrength * spec;
-    vec3f result = ambient + (diffuse + specular) * attenuation * ShadowFactor;
+    vec3f result = ambient * ao_factor + (diffuse + specular) * attenuation * ShadowFactor;
 
     result.x = std::clamp(result.x, 0.0f, 1.0f);
     result.y = std::clamp(result.y, 0.0f, 1.0f);
@@ -545,14 +545,119 @@ std::pair<bool, TGAColor> Shadow_Blinn_PhongShader::fragment(const vec3f& bar) c
         B * n_tangent.y +
         N * n_tangent.z;
 
-    finalNormal = finalNormal.normalize();
+    // 此时 finalNormal 是 world-space normal
+    vec3f frag_ViewPos = (
+        viewMatrix * vec4f(frag_WorldPos.x, frag_WorldPos.y, frag_WorldPos.z, 1.0f)
+    ).to_vec3();
 
-    color3f result = shadow_BlinnPhong(baseColor, specColor, frag_WorldPos, finalNormal);
+    vec3f frag_ViewNormal = (
+        viewMatrix * vec4f(finalNormal.x, finalNormal.y, finalNormal.z, 0.0f)
+    ).to_vec3().normalize();
+
+    float ao_factor = CalculateSSAO(frag_ViewPos, frag_ViewNormal);
+    
+    color3f result = shadow_BlinnPhong(baseColor, specColor, frag_WorldPos, finalNormal, ao_factor);
 
     TGAColor color = toTGAColor(result);
 
     return {false, color};
 }
+
+float Shadow_Blinn_PhongShader::CalculateSSAO(const vec3f& frag_ViewPos, const vec3f& frag_ViewNormal) const {
+    float occlusion = 0.0f;
+
+    vec3f N = frag_ViewNormal.normalize();
+
+    // 先用固定随机方向
+    vec3f randomVec = (N.x > 0.9) ? vec3f(0.0f, 1.0f, 0.0f) :vec3f(1.0f, 0.0f, 0.0f);
+
+    // 去掉 randomVec 在 N 方向上的投影，保证 T 和 N 正交
+    vec3f T = (randomVec - N * dot(randomVec, N)).normalize();
+    vec3f B = cross(N, T).normalize();
+
+    float radius = 0.5f;
+    float bias = 0.025f;
+
+    int scr_width = camera_zbuffer.size();
+    int scr_height = camera_zbuffer[0].size();
+
+    for (int i = 0; i < sample_Num; i++) {
+        vec3f sample = sampleKernel[i];
+
+        vec3f sampleDir =
+            T * sample.x +
+            B * sample.y +
+            N * sample.z;
+
+        vec3f sample_ViewPos = frag_ViewPos + sampleDir * radius;
+        // 在片段法线方向的半球上随机采样
+
+        vec4f clip = projectionMatrix * vec4f(
+            sample_ViewPos.x,
+            sample_ViewPos.y,
+            sample_ViewPos.z,
+            1.0f
+        );
+
+        vec3f ndc = clip.to_vec3();
+        vec3f screen = TransformPoint(Viewport(scr_width, scr_height), ndc);
+
+        int sx = static_cast<int>(screen.x);
+        int sy = static_cast<int>(screen.y);
+
+        if (sx < 0 || sx >= scr_width || sy < 0 || sy >= scr_height) {
+            continue;
+        }
+
+        float sceneDepth = camera_zbuffer[sx][sy];
+        float sampleDepth = screen.z;
+
+        if (sceneDepth < sampleDepth - bias) {
+            // 为什么要减去bias: 
+            occlusion += 1.0f;
+        }
+    }
+    occlusion /= sample_Num;
+
+    return 1.0f - occlusion;
+}
+
+static float lerp(float a, float b, float f) {
+    return a + f * (b - a);
+}
+
+void Shadow_Blinn_PhongShader::generateSampleKernel(){
+    sampleKernel.clear();
+    sampleKernel.reserve(sample_Num);
+
+    std::mt19937 rng(42);
+    // 固定 seed，方便调试。之后想要随机一点可以换 std::random_device{}()
+
+    std::uniform_real_distribution<float> randomFloats(0.0f, 1.0f);
+
+    for (int i = 0; i < sample_Num; i++) {
+        vec3f sample(
+            randomFloats(rng) * 2.0f - 1.0f,  // x: [-1, 1]
+            randomFloats(rng) * 2.0f - 1.0f,  // y: [-1, 1]
+            randomFloats(rng)                 // z: [0, 1]
+        );
+
+        // 保证 sample 在默认 +Z 半球方向
+        sample = sample.normalize();
+
+        // 随机长度，避免所有采样点都在半球表面
+        sample = sample * randomFloats(rng);
+
+        // 让更多采样点靠近当前片元，少量采样点分布到远处
+        float scale = static_cast<float>(i) / static_cast<float>(sample_Num);
+        scale = lerp(0.1f, 1.0f, scale * scale);
+
+        sample = sample * scale;
+
+        sampleKernel.push_back(sample);
+    }
+}
+
 
 ShadowDepthCalcShader::ShadowDepthCalcShader(
     const Model& mesh_,
