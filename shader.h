@@ -172,10 +172,11 @@ public:
         const vec3f& cameraPos_,
         const z_buffer& shadowBuffer_,
         const mat4f& lightMVP_,
+        const std::vector<std::vector<float>>& depthbuffer_,
         const TGAImage& diffusemap_ = TGAImage(),
         const TGAImage& normalmap_ = TGAImage(),
-        const TGAImage& specularmap_ = TGAImage(),
-        const std::vector<std::vector<float>>& depthbuffer_
+        const TGAImage& specularmap_ = TGAImage()
+
     );
 
     std::pair<bool, TGAColor> fragment(const vec3f& bar) const override;

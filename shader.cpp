@@ -385,10 +385,10 @@ Shadow_Blinn_PhongShader::Shadow_Blinn_PhongShader(
     const vec3f& cameraPos_,
     const z_buffer& shadowBuffer_,
     const mat4f& lightMVP_,
+    const std::vector<std::vector<float>>& depthbuffer_,
     const TGAImage& diffusemap_,
     const TGAImage& normalmap_,
-    const TGAImage& specularmap_,
-    const std::vector<std::vector<float>>& depthbuffer_
+    const TGAImage& specularmap_
 )
     : Blinn_PhongShader(
           mesh_,
@@ -581,6 +581,8 @@ float Shadow_Blinn_PhongShader::CalculateSSAO(const vec3f& frag_ViewPos, const v
     int scr_width = camera_zbuffer.size();
     int scr_height = camera_zbuffer[0].size();
 
+    int valid_Num = 0;
+
     for (int i = 0; i < sample_Num; i++) {
         vec3f sample = sampleKernel[i];
 
@@ -608,6 +610,7 @@ float Shadow_Blinn_PhongShader::CalculateSSAO(const vec3f& frag_ViewPos, const v
         if (sx < 0 || sx >= scr_width || sy < 0 || sy >= scr_height) {
             continue;
         }
+        valid_Num++;
 
         float sceneDepth = camera_zbuffer[sx][sy];
         float sampleDepth = screen.z;
@@ -617,7 +620,7 @@ float Shadow_Blinn_PhongShader::CalculateSSAO(const vec3f& frag_ViewPos, const v
             occlusion += 1.0f;
         }
     }
-    occlusion /= sample_Num;
+    occlusion /= valid_Num;
 
     return 1.0f - occlusion;
 }

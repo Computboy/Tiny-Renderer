@@ -15,8 +15,7 @@ int main(int argc, char** argv) {
     const int height = 2000;
 
     TGAImage framebuf(width, height, TGAImage::RGB);
-    
-    z_buffer zbuffer(width, std::vector<float>(height, 1.0f));
+
     // float精度的深度缓冲区
     z_buffer light_zbuffer(width, std::vector<float>(height, 1.0f));
 
@@ -78,8 +77,36 @@ int main(int argc, char** argv) {
 
     // shadowDebug.write_tga_file("shadow_pass_debug.tga");
     // ----------------------
-    // 2. Camera pass
+    // 2. Camera depth pre-pass
     // ----------------------
+
+    z_buffer camera_zbuffer(width, std::vector<float>(height, 1.0f));
+    TGAImage cameraDepthDebug(width, height, TGAImage::RGB);
+
+    ShadowDepthCalcShader backpackCameraDepth(
+        BackPack,
+        backpackModelMatrix,
+        viewMatrix,
+        perspectiveMatrix
+    );
+
+    Draw(BackPack, backpackCameraDepth, cameraDepthDebug, camera_zbuffer);
+
+    ShadowDepthCalcShader planeCameraDepth(
+        Plane,
+        planeModelMatrix,
+        viewMatrix,
+        perspectiveMatrix
+    );
+
+    Draw(Plane, planeCameraDepth, cameraDepthDebug, camera_zbuffer);
+
+
+    // ----------------------
+    // 3. Camera final pass
+    // ----------------------
+
+    z_buffer final_zbuffer(width, std::vector<float>(height, 1.0f));
 
     Shadow_Blinn_PhongShader backpackShader(
         BackPack,
@@ -91,12 +118,13 @@ int main(int argc, char** argv) {
         CamPos,
         light_zbuffer,
         lightMVP,
+        camera_zbuffer,
         BackPack_diffuse_tga,
         BackPack_normal_tga,
         BackPack_specular_tga
     );
 
-    Draw(BackPack, backpackShader, framebuf, zbuffer);
+    Draw(BackPack, backpackShader, framebuf, final_zbuffer);
 
     Shadow_Blinn_PhongShader planeShader(
         Plane,
@@ -108,10 +136,11 @@ int main(int argc, char** argv) {
         CamPos,
         light_zbuffer,
         lightMVP,
+        camera_zbuffer,
         PlaneDiffuse
     );
 
-    Draw(Plane, planeShader, framebuf, zbuffer);
+    Draw(Plane, planeShader, framebuf, final_zbuffer);
 
     // Model OldHouse("media/OldHouse/OldHouse.obj");
     // TGAImage OldHouse_diffuse_tga;
