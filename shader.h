@@ -169,5 +169,5 @@ public:
 
     std::pair<bool, TGAColor> fragment(const vec3f& bar) const override;
     float getShadowDepth(int x, int y) const;
-
+    float CalculateSSAO(int sx, int sy) const;
 };
