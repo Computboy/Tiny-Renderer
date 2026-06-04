@@ -3331,26 +3331,26 @@ vec3f result = ao_factor;  // 注释掉完整的光照计算
 ### 12. 当前管线总览
 
 ```text
-┌─ Pass 1: Shadow Pass（光源视角）──────────────────────────┐
-│ OBJ → [Model] → [Light View] → [Light Proj] → [÷w] → NDC │
-│     → [Viewport] → 光栅化 → light_zbuffer                 │
-└──────────────────────────────────────────────────────────┘
+┌─ Pass 1: Shadow Pass (Light-Space Rendering) ───────────────┐
+│ OBJ → [Model Matrix] → [Light View Matrix] → [Light Projection Matrix] → [Perspective Divide by w] → NDC │
+│     → [Viewport Transform] → Rasterization → Light Depth Buffer │
+└─────────────────────────────────────────────────────────────────────────┘
                             │
-┌─ Pass 2: Camera Depth Pre-Pass（相机视角）─────────────────┐
-│ OBJ → [Model] → [View] → [Proj] → [÷w] → NDC → [Viewport] │
-│     → 光栅化 → camera_zbuffer（供 SSAO 查询）               │
-└───────────────────────────────────────────────────────────┘
+┌─ Pass 2: Camera Depth Pre-Pass (View-Space Depth Prep) ─────────────────┐
+│ OBJ → [Model Matrix] → [Camera View Matrix] → [Camera Projection Matrix] → [Perspective Divide by w] → NDC → [Viewport Transform] │
+│     → Rasterization → Camera Depth Buffer (SSAO Lookup Resource) │
+└─────────────────────────────────────────────────────────────────────────┘
                             │
-┌─ Pass 3: Camera Final Pass（最终着色）─────────────────────┐
-│ OBJ → [Model] → [View] → [Proj] → [÷w] → NDC → [Viewport] │
-│     → 光栅化 → 透视矫正重心插值 (worldPos + normal + uv)    │
-│     → 纹理采样 (diffuse + normal + specular)               │
-│     → TBN 正交化 + 法线扰动 → worldNormal                  │
-│     → ⭐ 变换到 View Space → CalculateSSAO()              │
-│     → ⭐ 查询 Shadow Map (light_zbuffer) → ShadowFactor   │
-│     → Blinn-Phong (ambient·AO + diffuse·shadow + specular)│
-│     → Z-Buffer 测试 → 像素输出                             │
-└───────────────────────────────────────────────────────────┘
+┌─ Pass 3: Camera Final Shading Pass ─────────────────────────────────────┐
+│ OBJ → [Model Matrix] → [Camera View Matrix] → [Camera Projection Matrix] → [Perspective Divide by w] → NDC → [Viewport Transform] │
+│     → Rasterization → Perspective-Corrected Barycentric Interpolation (World Position + Normal + UV) │
+│     → Texture Sampling (Albedo + Normal Map + Specular Map) │
+│     → TBN Orthonormalization + Normal Mapping Perturbation → World-Space Normal │
+│     → ⭐ Transform into View Space → Execute SSAO Calculation │
+│     → ⭐ Shadow Map Sampling (Light Depth Buffer Query) → Shadow Attenuation Factor │
+│     → Blinn-Phong Lighting (Ambient·AO + Diffuse·ShadowFactor + Specular) │
+│     → Depth Buffer Test → Final Pixel Output │
+└─────────────────────────────────────────────────────────────────────────┘
 ```
 
-Day11 完成后，渲染器具备了屏幕空间环境光遮蔽能力——缝隙、凹角和物体接触边缘呈现出自然的暗部过渡。SSAO 的引入使环境光从「全局常数」进化为「由周围几何体分布决定」的逐像素遮蔽量，画面的空间真实感进一步向离线渲染逼近。与此同时，渲染管线升级为三 Pass 架构——Shadow、Depth Pre-Pass、Final Pass 各自承担独立职责，为后续的阴影柔化和 AO 优化提供了清晰的结构基础。
+Day11 完成后，渲染器具备了屏幕空间环境光遮蔽能力——缝隙、凹角和物体接触边缘呈现出自然的暗部过渡。SSAO 的引入使环境光从「全局常数」进化为「由周围几何体分布决定」的逐像素遮蔽量，画面的空间真实感进一步向离线渲染逼近。与此同时，渲染管线升级为三 Pass 架构——**Shadow、Depth Pre-Pass、Final Pass** 各自承担独立职责，为后续的阴影柔化和 AO 优化提供了清晰的结构基础。
