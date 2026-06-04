@@ -20,3 +20,5 @@ void Rasterization(point3f A, point3f B, point3f C, IShader& shader, TGAImage& f
 
 float triangle_area(float ax, float ay, float bx, float by, float cx, float cy);
 float triangle_area(vec2f A, vec2f B, vec2f C); // 重载一版
+
+TGAImage ResolveSSAA(const TGAImage& highRes, int width, int height, int scale);

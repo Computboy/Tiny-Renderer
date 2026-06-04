@@ -11,19 +11,25 @@ vec3f CoordinateOrigin(0.0f);
 
 int main(int argc, char** argv) {
 
-    const int width = 2000;
-    const int height = 2000;
+    const int width = 1200;
+    const int height = 1200;
 
-    TGAImage framebuf(width, height, TGAImage::RGB);
+    const int SSAA_SCALE = 1;
+
+    const int renderwidth = width * SSAA_SCALE;
+    const int renderheight = height * SSAA_SCALE;
+
+    TGAImage renderframebuf(renderwidth, renderheight, TGAImage::RGB);
+    TGAImage ultimateframebuf(width, height, TGAImage::RGB);
 
     // float精度的深度缓冲区
-    z_buffer light_zbuffer(width, std::vector<float>(height, 1.0f));
+    z_buffer light_zbuffer(renderwidth, std::vector<float>(renderheight, 1.0f));
 
     // mat4f modelMatrix = Translate(0.2f, -0.2f, -0.5f) * RotateY(35.0f) * Scale(0.5f);
     // 顺序很重要：先缩放再旋转，最后平移
     mat4f viewMatrix  = LookAt(CamPos, CoordinateOrigin, vec3f(0.0f, 1.0f, 0.0f));
-    mat4f perspectiveMatrix = Perspective(60.0f, (float)width / (float)height, 0.1f, 100.0f);
-    mat4f viewportMatrix = Viewport(width, height);
+    mat4f perspectiveMatrix = Perspective(60.0f, (float)renderwidth / (float)renderheight, 0.1f, 100.0f);
+    mat4f viewportMatrix = Viewport(renderwidth, renderheight);
     // 矩阵变换
 
     mat4f lightviewMatrix = LookAt(EasyPointLightPos, CoordinateOrigin, vec3f(0.0f, 0.0f, 1.0f));
@@ -55,7 +61,7 @@ int main(int argc, char** argv) {
     // 1. Shadow pass
     // ----------------------
 
-    TGAImage shadowDebug(width, height, TGAImage::RGB);
+    TGAImage shadowDebug(renderwidth, renderheight, TGAImage::RGB);
 
     ShadowDepthCalcShader backpackShadow(
         BackPack,
@@ -80,8 +86,8 @@ int main(int argc, char** argv) {
     // 2. Camera depth pre-pass
     // ----------------------
 
-    z_buffer camera_zbuffer(width, std::vector<float>(height, 1.0f));
-    TGAImage cameraDepthDebug(width, height, TGAImage::RGB);
+    z_buffer camera_zbuffer(renderwidth, std::vector<float>(renderheight, 1.0f));
+    TGAImage cameraDepthDebug(renderwidth, renderheight, TGAImage::RGB);
 
     ShadowDepthCalcShader backpackCameraDepth(
         BackPack,
@@ -106,7 +112,7 @@ int main(int argc, char** argv) {
     // 3. Camera final pass
     // ----------------------
 
-    z_buffer final_zbuffer(width, std::vector<float>(height, 1.0f));
+    z_buffer final_zbuffer(renderwidth, std::vector<float>(renderheight, 1.0f));
 
     Shadow_Blinn_PhongShader backpackShader(
         BackPack,
@@ -124,7 +130,7 @@ int main(int argc, char** argv) {
         BackPack_specular_tga
     );
 
-    Draw(BackPack, backpackShader, framebuf, final_zbuffer);
+    Draw(BackPack, backpackShader, renderframebuf, final_zbuffer);
 
     Shadow_Blinn_PhongShader planeShader(
         Plane,
@@ -140,52 +146,12 @@ int main(int argc, char** argv) {
         PlaneDiffuse
     );
 
-    Draw(Plane, planeShader, framebuf, final_zbuffer);
+    Draw(Plane, planeShader, renderframebuf, final_zbuffer);
 
-    // Model OldHouse("media/OldHouse/OldHouse.obj");
-    // TGAImage OldHouse_diffuse_tga;
-    // OldHouse_diffuse_tga.read_tga_file("media/OldHouse/housediff.tga");
+    ultimateframebuf = ResolveSSAA(renderframebuf, width, height, SSAA_SCALE);
+    // 将高分辨率采样结果转写到普通帧缓冲上
 
-    // modelMatrix = Translate(0.25f, -0.3f, 0.1f) * RotateY(-55.0f) * Scale(0.105f);
-
-    // Blinn_PhongShader myShader2(OldHouse, modelMatrix, viewMatrix, perspectiveMatrix, vec3f(1.0f), vec3f(2.0f, -4.0f, 6.0f), CamPos, OldHouse_diffuse_tga);
-
-    // Draw(OldHouse, myShader2, framebuf, zbuffer);
-
-    framebuf.write_tga_file("framebuffer1.tga");
-
-
-    // TGAImage shadowDepthVis(width, height, TGAImage::RGB);
-
-    // float minDepth = 1.0f;
-    // float maxDepth = 0.0f;
-
-    // for (int x = 0; x < width; x++) {
-    //     for (int y = 0; y < height; y++) {
-    //         if (light_zbuffer[x][y] < 1.0f) {
-    //             minDepth = std::min(minDepth, light_zbuffer[x][y]);
-    //             maxDepth = std::max(maxDepth, light_zbuffer[x][y]);
-    //         }
-    //     }
-    // }
-
-    // for (int x = 0; x < width; x++) {
-    //     for (int y = 0; y < height; y++) {
-    //         float d = light_zbuffer[x][y];
-
-    //         if (d >= 1.0f) {
-    //             shadowDepthVis.set(x, y, TGAColor{0, 0, 0, 255});
-    //         } else {
-    //             float t = (d - minDepth) / (maxDepth - minDepth + 1e-6f);
-    //             t = 1.0 - t;
-    //             unsigned char c = static_cast<unsigned char>(t * 255.0f);
-    //             shadowDepthVis.set(x, y, TGAColor{c, c, c, 255});
-    //         }
-    //     }
-    // }
-
-    // shadowDepthVis.write_tga_file("shadow_depth_vis.tga");
-    // 输出深度图的可视化调试
+    ultimateframebuf.write_tga_file("framebuffer1.tga");
 
     return 0;
 }

@@ -468,7 +468,7 @@ color3f Shadow_Blinn_PhongShader::shadow_BlinnPhong(
     // }
     // 判断是否真正生成了阴影
 
-    float ambientStrength = 0.65f;
+    float ambientStrength = 0.12f;
     vec3f ambient = baseColor * ambientStrength;
 
     float diff = std::max(0.0f, dot(frag_Normal, lightDir));
@@ -480,8 +480,8 @@ color3f Shadow_Blinn_PhongShader::shadow_BlinnPhong(
     float spec = std::pow(std::max(0.0f, dot(frag_Normal, halfwayDir)), shininess);
 
     vec3f specular = lightColor * specularStrength * spec;
-    // vec3f result = ambient * ao_factor + (diffuse + specular) * attenuation * ShadowFactor * 0.3;
-    vec3f result = ao_factor;
+    vec3f result = ambient * ao_factor + (diffuse + specular) * attenuation * ShadowFactor;
+    // vec3f result = ao_factor;
 
     result.x = std::clamp(result.x, 0.0f, 1.0f);
     result.y = std::clamp(result.y, 0.0f, 1.0f);

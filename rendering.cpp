@@ -141,3 +141,37 @@ float triangle_area(float ax, float ay, float bx, float by, float cx, float cy){
 float triangle_area(vec2f A, vec2f B, vec2f C){
     return std::abs(0.5f * (A.x * (B.y - C.y) + B.x * (C.y - A.y) + C.x * (A.y - B.y)));
 }
+
+TGAImage ResolveSSAA(const TGAImage& highRes, int width, int height, int scale){
+    // 将SSAA采样得到的高分辨率图信息转写入普通帧缓冲中
+    TGAImage result(width, height, TGAImage::RGB);
+
+    for (int x = 0; x < width; x++) {
+        for (int y = 0; y < height; y++) {
+
+            int sumR = 0, sumG = 0, sumB = 0;
+
+            for (int sx = 0; sx < scale; sx++) {
+                for (int sy = 0; sy < scale; sy++) {
+                    int hx = x * scale + sx;
+                    int hy = y * scale + sy;
+
+                    TGAColor c = highRes.get(hx, hy);
+
+                    sumB += c[0];
+                    sumG += c[1];
+                    sumR += c[2];
+                }
+            }
+
+            int sampleCount = scale * scale;
+
+            unsigned char r = sumR / sampleCount;
+            unsigned char g = sumG / sampleCount;
+            unsigned char b = sumB / sampleCount;
+
+            result.set(x, y, TGAColor{b, g, r, 255});
+        }
+    }
+    return result;
+}
