@@ -15,26 +15,26 @@ Tiny Renderer 是一个面向图形学学习与底层渲染原理理解的软光
 它目前已经实现了一条完整的基础渲染管线（含三 Pass SSAO + 阴影映射）：
 
 ```text
-┌─ Pass 1: Shadow Pass（光源视角）──────────────────────────┐
-│ OBJ Model → Vertex Shader (ShadowDepthCalcShader)         │
-│   → Light MVP → Z-Buffer → light_zbuffer                  │
-└──────────────────────────┬───────────────────────────────┘
-                           │
-┌─ Pass 2: Camera Depth Pre-Pass ───────────────────────────┐
-│ OBJ Model → Vertex Shader (ShadowDepthCalcShader)         │
-│   → Camera MVP → Z-Buffer → camera_zbuffer (SSAO 查询用)  │
-└──────────────────────────┬───────────────────────────────┘
-                           │
-┌─ Pass 3: Camera Final Pass ───────────┬───────────────────┘
-│ OBJ Model → Vertex Shader (Shadow_Blinn_PhongShader)      │
-│   → MVP Transformation → Perspective Division             │
-│   → Viewport Mapping → Triangle Rasterization             │
-│   → Barycentric Interpolation                             │
-│   → Query light_zbuffer (Shadow Test)                     │
-│   → Query camera_zbuffer (SSAO — Screen Space AO)         │
-│   → Fragment Shader (Blinn-Phong + Attenuation)           │
-│   → Z-Buffer Test → TGA Framebuffer Output                │
-└───────────────────────────────────────────────────────────┘
+┌─ Pass 1: Shadow Pass (Light-Space Rendering) ────────────────────┐
+│ OBJ Model → Vertex Shader (ShadowDepthCalcShader)                │
+│   → Light MVP → Depth Buffer → light_zbuffer                     │
+└──────────────────────────────┬───────────────────────────────────┘
+                               │
+┌─ Pass 2: Camera Depth Pre-Pass ──────────────────────────────────┐
+│ OBJ Model → Vertex Shader (ShadowDepthCalcShader)                │
+│   → Camera MVP → Depth Buffer → camera_zbuffer (for SSAO lookup) │
+└──────────────────────────────┬───────────────────────────────────┘
+                               │
+┌─ Pass 3: Camera Final Pass ──────────────────────────────────────┐
+│ OBJ Model → Vertex Shader (Shadow_Blinn_PhongShader)             │
+│   → MVP Transformation → Perspective Division                    │
+│   → Viewport Mapping → Triangle Rasterization                    │
+│   → Barycentric Interpolation                                    │
+│   → Query light_zbuffer (Shadow Test)                            │
+│   → Query camera_zbuffer (SSAO — Screen Space Ambient Occlusion) │
+│   → Fragment Shader (Blinn-Phong + Light Attenuation)            │
+│   → Depth Buffer Test → TGA Framebuffer Output                   │
+└──────────────────────────────────────────────────────────────────┘
 ```
 
 相比直接使用 OpenGL，本项目更关注：
