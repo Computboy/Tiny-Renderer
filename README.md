@@ -1,5 +1,7 @@
 # Tiny Renderer
 
+> 期末复习暂缓开发……orz
+
 一个使用 **C++ 手写实现的 CPU 软件光栅渲染器**。
 
 本项目参考 [tinyrenderer](https://github.com/ssloy/tinyrenderer) 的学习路径，从最基础的像素绘制开始，逐步实现 OBJ 模型加载、三角形光栅化、Z-Buffer、MVP 坐标变换、Shader 抽象、Blinn-Phong 光照、纹理映射与法线贴图。
